@@ -214,14 +214,6 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max { s.to_string() } else { format!("{}\u{2026}", &s[..max - 1]) }
 }
 
-fn row_style(row: usize) -> Style {
-    if row % 2 == 1 {
-        Style::default().bg(Color::Rgb(28, 28, 32))
-    } else {
-        Style::default()
-    }
-}
-
 fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
     let sort_label = app.sort_mode.label();
     let grouped_tag = if app.group_mode { " [Grouped]" } else { "" };
@@ -255,9 +247,10 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&cra
             )));
 
             for idx in indices {
-                let row = items.len();
-                let item = ListItem::new(make_app_line(visible[idx], app))
-                    .style(row_style(row));
+                let item = ListItem::new(vec![
+                    make_app_line(visible[idx], app),
+                    Line::raw(""),
+                ]);
                 items.push(item);
                 if idx == app.selected_index {
                     highlight_visual = Some(items.len() - 1);
@@ -268,8 +261,10 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&cra
     } else {
         let items: Vec<ListItem> = visible
             .iter()
-            .enumerate()
-            .map(|(i, a)| ListItem::new(make_app_line(a, app)).style(row_style(i)))
+            .map(|a| ListItem::new(vec![
+                make_app_line(a, app),
+                Line::raw(""),
+            ]))
             .collect();
         (items, Some(app.selected_index))
     };
