@@ -1,4 +1,4 @@
-use crate::process::{self, GuiApp};
+use crate::process::{self, CpuSnapshot, GuiApp};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
@@ -80,6 +80,7 @@ pub struct App {
     pub quit_history: Vec<HistoryEntry>,
     pub protected_apps: HashSet<String>,
     pub last_click: Option<(u16, std::time::Instant)>,
+    cpu_snapshot: Option<CpuSnapshot>,
 }
 
 pub struct ConfirmDialog {
@@ -122,11 +123,14 @@ pub enum Message {
     ToggleHistory,
     TogglePreview,
     RequestQuitAll,
+    RefreshCpu,
 }
 
 impl App {
     pub fn new() -> Self {
         let apps = process::list_gui_apps().unwrap_or_default();
+        let pids: Vec<u32> = apps.iter().map(|a| a.pid).collect();
+        let snapshot = CpuSnapshot::capture(&pids);
         let protected_apps = load_protected_apps();
         Self {
             apps,
@@ -145,6 +149,7 @@ impl App {
             quit_history: Vec::new(),
             protected_apps,
             last_click: None,
+            cpu_snapshot: Some(snapshot),
         }
     }
 
@@ -277,22 +282,15 @@ impl App {
                     self.warn_if_protected();
                     return;
                 }
-                let app = targets[0].clone();
-                let bundle_id = app.bundle_id.clone();
-                let name = app.name.clone();
+                let target = targets[0];
+                let bundle_id = target.bundle_id.clone();
+                let name = target.name.clone();
 
-                if process::graceful_quit(&app).is_ok() {
+                if process::graceful_quit(target).is_ok() {
                     self.set_status(format!("Restarting {}...", name), true);
                     std::thread::spawn(move || {
                         std::thread::sleep(Duration::from_millis(800));
-                        process::relaunch(&GuiApp {
-                            name,
-                            pid: 0,
-                            bundle_id,
-                            memory_kb: 0,
-                            cpu_percent: 0.0,
-                            is_frozen: false,
-                        });
+                        process::relaunch(&bundle_id);
                     });
                     self.refresh_list();
                 } else {
@@ -402,6 +400,12 @@ impl App {
             }
             Message::TogglePreview => {
                 self.show_preview = !self.show_preview;
+            }
+            Message::RefreshCpu => {
+                if let Some(prev) = self.cpu_snapshot.take() {
+                    let new_snap = process::refresh_cpu_rss(&mut self.apps, &prev);
+                    self.cpu_snapshot = Some(new_snap);
+                }
             }
         }
     }

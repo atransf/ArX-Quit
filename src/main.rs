@@ -28,15 +28,20 @@ fn main() -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut app = App::new();
-    let tick_rate = Duration::from_secs(5);
-    let mut last_tick = Instant::now();
+    let cpu_tick = Duration::from_secs(1);
+    let list_tick = Duration::from_secs(5);
+    let mut last_cpu = Instant::now();
+    let mut last_list = Instant::now();
 
     while app.running {
         terminal.draw(|frame| ui::draw(frame, &app))?;
 
         app.clear_stale_status();
 
-        let timeout = tick_rate.saturating_sub(last_tick.elapsed());
+        let cpu_due = cpu_tick.saturating_sub(last_cpu.elapsed());
+        let list_due = list_tick.saturating_sub(last_list.elapsed());
+        let timeout = cpu_due.min(list_due);
+
         if event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
@@ -53,9 +58,13 @@ fn main() -> Result<()> {
             }
         }
 
-        if last_tick.elapsed() >= tick_rate {
+        if last_cpu.elapsed() >= cpu_tick {
+            app.update(Message::RefreshCpu);
+            last_cpu = Instant::now();
+        }
+        if last_list.elapsed() >= list_tick {
             app.update(Message::RefreshList);
-            last_tick = Instant::now();
+            last_list = Instant::now();
         }
     }
 

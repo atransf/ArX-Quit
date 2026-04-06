@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
 use std::process::Command;
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct GuiApp {
@@ -10,6 +11,74 @@ pub struct GuiApp {
     pub memory_kb: u64,
     pub cpu_percent: f32,
     pub is_frozen: bool,
+}
+
+/// Snapshot of per-PID cumulative CPU time (as f64 seconds) at a point in time.
+/// Uses `ps -o pid=,cputime=` which outputs `[HH:]MM:SS.ss` on macOS.
+#[derive(Clone)]
+pub struct CpuSnapshot {
+    pub taken_at: Instant,
+    pub ticks: HashMap<u32, f64>,
+}
+
+impl CpuSnapshot {
+    pub fn capture(pids: &[u32]) -> Self {
+        let mut ticks = HashMap::new();
+        if pids.is_empty() {
+            return Self { taken_at: Instant::now(), ticks };
+        }
+        let pid_list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+        if let Ok(output) = Command::new("ps")
+            .args(["-o", "pid=,cputime=", "-p", &pid_list])
+            .output()
+        {
+            for line in String::from_utf8_lossy(&output.stdout).lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    if let Ok(pid) = parts[0].parse::<u32>() {
+                        ticks.insert(pid, parse_cputime(parts[1]));
+                    }
+                }
+            }
+        }
+        Self { taken_at: Instant::now(), ticks }
+    }
+
+    /// Real-time CPU% for each PID: (Δ cpu_seconds / Δ wall_seconds) × 100.
+    pub fn delta_cpu(&self, prev: &CpuSnapshot) -> HashMap<u32, f32> {
+        let elapsed = self.taken_at.duration_since(prev.taken_at).as_secs_f64();
+        if elapsed < 0.1 {
+            return HashMap::new();
+        }
+        let mut out = HashMap::new();
+        for (&pid, &cur) in &self.ticks {
+            if let Some(&prev_val) = prev.ticks.get(&pid) {
+                let delta = (cur - prev_val).max(0.0);
+                out.insert(pid, (delta / elapsed * 100.0) as f32);
+            }
+        }
+        out
+    }
+}
+
+/// Parse macOS `cputime` field `[HH:]MM:SS.ss` into total seconds as f64.
+fn parse_cputime(s: &str) -> f64 {
+    let parts: Vec<&str> = s.split(':').collect();
+    match parts.len() {
+        3 => {
+            let h = parts[0].parse::<f64>().unwrap_or(0.0);
+            let m = parts[1].parse::<f64>().unwrap_or(0.0);
+            let sec = parts[2].parse::<f64>().unwrap_or(0.0);
+            h * 3600.0 + m * 60.0 + sec
+        }
+        2 => {
+            let m = parts[0].parse::<f64>().unwrap_or(0.0);
+            let sec = parts[1].parse::<f64>().unwrap_or(0.0);
+            m * 60.0 + sec
+        }
+        1 => parts[0].parse::<f64>().unwrap_or(0.0),
+        _ => 0.0,
+    }
 }
 
 fn run_applescript(script: &str) -> Result<String> {
@@ -34,31 +103,24 @@ fn parse_applescript_list(raw: &str) -> Vec<String> {
     raw.split(", ").map(|s| s.trim().to_string()).collect()
 }
 
-/// Batch-fetch RSS (KB) and CPU% for a list of PIDs using a single `ps` call.
-fn fetch_resource_usage(pids: &[u32]) -> HashMap<u32, (u64, f32)> {
+fn fetch_rss(pids: &[u32]) -> HashMap<u32, u64> {
     let mut map = HashMap::new();
     if pids.is_empty() {
         return map;
     }
 
-    let pid_args: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
-    let pid_list = pid_args.join(",");
+    let pid_list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
 
-    let output = Command::new("ps")
-        .args(["-o", "pid=,rss=,pcpu=", "-p", &pid_list])
-        .output();
-
-    if let Ok(output) = output {
+    if let Ok(output) = Command::new("ps")
+        .args(["-o", "pid=,rss=", "-p", &pid_list])
+        .output()
+    {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 3 {
-                if let (Ok(pid), Ok(rss), Ok(cpu)) = (
-                    parts[0].parse::<u32>(),
-                    parts[1].parse::<u64>(),
-                    parts[2].parse::<f32>(),
-                ) {
-                    map.insert(pid, (rss, cpu));
+            if parts.len() >= 2 {
+                if let (Ok(pid), Ok(rss)) = (parts[0].parse::<u32>(), parts[1].parse::<u64>()) {
+                    map.insert(pid, rss);
                 }
             }
         }
@@ -105,11 +167,10 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
         .collect();
 
     let all_pids: Vec<u32> = apps.iter().map(|a| a.pid).collect();
-    let usage = fetch_resource_usage(&all_pids);
+    let rss_map = fetch_rss(&all_pids);
     for app in &mut apps {
-        if let Some(&(rss, cpu)) = usage.get(&app.pid) {
+        if let Some(&rss) = rss_map.get(&app.pid) {
             app.memory_kb = rss;
-            app.cpu_percent = cpu;
         }
     }
 
@@ -133,6 +194,28 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
     Ok(apps)
 }
 
+/// Fast CPU + RSS refresh using only `ps` (no AppleScript).
+pub fn refresh_cpu_rss(apps: &mut Vec<GuiApp>, prev: &CpuSnapshot) -> CpuSnapshot {
+    let pids: Vec<u32> = apps.iter().map(|a| a.pid).collect();
+    if pids.is_empty() {
+        return CpuSnapshot::capture(&[]);
+    }
+    let new_snap = CpuSnapshot::capture(&pids);
+    let cpu_map = new_snap.delta_cpu(prev);
+    let rss_map = fetch_rss(&pids);
+
+    for app in apps.iter_mut() {
+        if let Some(&rss) = rss_map.get(&app.pid) {
+            app.memory_kb = rss;
+        }
+        if let Some(&pct) = cpu_map.get(&app.pid) {
+            app.cpu_percent = pct;
+        }
+    }
+
+    new_snap
+}
+
 pub fn graceful_quit(app: &GuiApp) -> Result<()> {
     let escaped_name = app.name.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!("tell application \"{}\" to quit", escaped_name);
@@ -140,10 +223,10 @@ pub fn graceful_quit(app: &GuiApp) -> Result<()> {
     Ok(())
 }
 
-pub fn relaunch(app: &GuiApp) {
+pub fn relaunch(bundle_id: &str) {
     Command::new("open")
         .arg("-b")
-        .arg(&app.bundle_id)
+        .arg(bundle_id)
         .output()
         .ok();
 }
