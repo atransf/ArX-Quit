@@ -138,6 +138,10 @@ src/
 - [toml](https://crates.io/crates/toml) — Configuration parsing
 - [serde](https://crates.io/crates/serde) — Deserialization
 
+## About
+
+I'm not a software engineer. This was built because I needed it, not to show off code. No vibe coding, no AI-generated slop — just a tool that does what it says.
+
 ## License
 
 MIT
