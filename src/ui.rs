@@ -179,28 +179,39 @@ fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
     let mem_str = format_memory(a.memory_kb);
     let cpu_str = format!("{:.1}%", a.cpu_percent);
 
+    let name_col = truncate(&a.name, 24);
+    let bundle_col = truncate(&a.bundle_id, 30);
+
     let mut spans = vec![
         Span::styled(marker.to_string(), Style::default().fg(marker_color)),
     ];
     spans.extend(frozen_prefix);
     spans.push(Span::styled(
-        format!("{:<30}", a.name),
+        format!("{:<24}", name_col),
         Style::default().fg(name_color),
     ));
     spans.push(Span::styled(
-        format!("  {:<36}", a.bundle_id),
+        format!("  {:<30}", bundle_col),
         Style::default().fg(Color::DarkGray),
     ));
     spans.push(Span::styled(
-        format!("  PID: {:<8}", a.pid),
+        format!("  {:>6}", a.pid),
         Style::default().fg(Color::DarkGray),
     ));
     spans.push(Span::styled(
-        format!("  {}  {}", mem_str, cpu_str),
+        format!("  {:>6}", mem_str),
+        Style::default().fg(Color::DarkGray),
+    ));
+    spans.push(Span::styled(
+        format!("  {:>5}", cpu_str),
         Style::default().fg(Color::DarkGray),
     ));
 
     Line::from(spans)
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.len() <= max { s.to_string() } else { format!("{}\u{2026}", &s[..max - 1]) }
 }
 
 fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
