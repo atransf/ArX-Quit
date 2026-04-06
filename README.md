@@ -6,7 +6,7 @@
  /_/   \_\_|   /_/\_\     \__\_\ \__,_|_| \__|
 ```
 
-[![CI](https://github.com/atransf/ArX-Quit/actions/workflows/ci.yml/badge.svg)](https://github.com/atransf/ArX-Quit/actions/workflows/ci.yml)
+[![CI](https://git.cyberarx.systems/cyberarx/ArX-Quit/actions/workflows/ci.yml/badge.svg)](https://git.cyberarx.systems/cyberarx/ArX-Quit/actions/workflows/ci.yml)
 
 ![ArX-Quit screenshot](assets/screenshot.png)
 
