@@ -2,14 +2,45 @@ use crate::process::{self, GuiApp};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashSet;
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum SortMode {
+    NameAsc,
+    NameDesc,
+    PidAsc,
+    MemDesc,
+}
+
+impl SortMode {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SortMode::NameAsc => "\u{2191} Name",
+            SortMode::NameDesc => "\u{2193} Name",
+            SortMode::PidAsc => "\u{2191} PID",
+            SortMode::MemDesc => "\u{2193} Mem",
+        }
+    }
+
+    fn next(self) -> Self {
+        match self {
+            SortMode::NameAsc => SortMode::NameDesc,
+            SortMode::NameDesc => SortMode::PidAsc,
+            SortMode::PidAsc => SortMode::MemDesc,
+            SortMode::MemDesc => SortMode::NameAsc,
+        }
+    }
+}
+
 pub struct App {
     pub apps: Vec<GuiApp>,
     pub selected_index: usize,
-    pub selected_pids: HashSet<u32>, // multi-select set
+    pub selected_pids: HashSet<u32>,
     pub running: bool,
-    pub status_message: Option<(String, bool)>, // (message, is_success)
+    pub status_message: Option<(String, bool)>,
     pub confirm_dialog: Option<ConfirmDialog>,
     pub status_set_at: Option<std::time::Instant>,
+    pub filter_query: String,
+    pub filter_active: bool,
+    pub sort_mode: SortMode,
 }
 
 pub struct ConfirmDialog {
@@ -35,6 +66,11 @@ pub enum Message {
     ConfirmNo,
     RefreshList,
     Quit,
+    EnterFilter,
+    ExitFilter,
+    FilterInput(char),
+    FilterBackspace,
+    CycleSort,
 }
 
 impl App {
@@ -48,16 +84,42 @@ impl App {
             status_message: None,
             confirm_dialog: None,
             status_set_at: None,
+            filter_query: String::new(),
+            filter_active: false,
+            sort_mode: SortMode::NameAsc,
         }
+    }
+
+    /// Returns apps after applying the current filter and sort.
+    pub fn filtered_sorted_apps(&self) -> Vec<&GuiApp> {
+        let mut result: Vec<&GuiApp> = if self.filter_query.is_empty() {
+            self.apps.iter().collect()
+        } else {
+            let q = self.filter_query.to_lowercase();
+            self.apps
+                .iter()
+                .filter(|a| a.name.to_lowercase().contains(&q))
+                .collect()
+        };
+
+        match self.sort_mode {
+            SortMode::NameAsc => result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
+            SortMode::NameDesc => result.sort_by(|a, b| b.name.to_lowercase().cmp(&a.name.to_lowercase())),
+            SortMode::PidAsc => result.sort_by_key(|a| a.pid),
+            SortMode::MemDesc => result.sort_by(|a, b| b.memory_kb.cmp(&a.memory_kb)),
+        }
+
+        result
     }
 
     /// Returns the apps targeted by the current action:
     /// all selected apps if any are selected, otherwise just the cursor app.
     fn target_apps(&self) -> Vec<&GuiApp> {
+        let visible = self.filtered_sorted_apps();
         if self.selected_pids.is_empty() {
-            self.apps.get(self.selected_index).into_iter().collect()
+            visible.get(self.selected_index).copied().into_iter().collect()
         } else {
-            self.apps.iter().filter(|a| self.selected_pids.contains(&a.pid)).collect()
+            visible.iter().filter(|a| self.selected_pids.contains(&a.pid)).copied().collect()
         }
     }
 
@@ -69,12 +131,14 @@ impl App {
                 }
             }
             Message::MoveDown => {
-                if !self.apps.is_empty() && self.selected_index < self.apps.len() - 1 {
+                let len = self.filtered_sorted_apps().len();
+                if len > 0 && self.selected_index < len - 1 {
                     self.selected_index += 1;
                 }
             }
             Message::ToggleSelect => {
-                if let Some(app) = self.apps.get(self.selected_index) {
+                let visible = self.filtered_sorted_apps();
+                if let Some(app) = visible.get(self.selected_index) {
                     let pid = app.pid;
                     if !self.selected_pids.remove(&pid) {
                         self.selected_pids.insert(pid);
@@ -82,7 +146,8 @@ impl App {
                 }
             }
             Message::SelectAll => {
-                self.selected_pids = self.apps.iter().map(|a| a.pid).collect();
+                let visible = self.filtered_sorted_apps();
+                self.selected_pids = visible.iter().map(|a| a.pid).collect();
             }
             Message::DeselectAll => {
                 self.selected_pids.clear();
@@ -159,29 +224,71 @@ impl App {
                     self.running = false;
                 }
             }
+            Message::EnterFilter => {
+                self.filter_active = true;
+                self.filter_query.clear();
+                self.selected_index = 0;
+            }
+            Message::ExitFilter => {
+                self.filter_active = false;
+                self.filter_query.clear();
+                self.selected_index = 0;
+            }
+            Message::FilterInput(c) => {
+                self.filter_query.push(c);
+                self.selected_index = 0;
+            }
+            Message::FilterBackspace => {
+                self.filter_query.pop();
+                self.selected_index = 0;
+            }
+            Message::CycleSort => {
+                self.sort_mode = self.sort_mode.next();
+                self.selected_index = 0;
+            }
         }
     }
 
     pub fn handle_key_event(&self, key: KeyEvent) -> Option<Message> {
         if self.confirm_dialog.is_some() {
-            match key.code {
+            return match key.code {
                 KeyCode::Char('y') | KeyCode::Enter => Some(Message::ConfirmYes),
                 KeyCode::Char('n') | KeyCode::Esc => Some(Message::ConfirmNo),
                 _ => None,
-            }
-        } else {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => Some(Message::MoveUp),
-                KeyCode::Down | KeyCode::Char('j') => Some(Message::MoveDown),
-                KeyCode::Char(' ') => Some(Message::ToggleSelect),
-                KeyCode::Char('a') => Some(Message::SelectAll),
-                KeyCode::Char('d') => Some(Message::DeselectAll),
-                KeyCode::Enter | KeyCode::Char('r') => Some(Message::RequestGracefulQuit),
-                KeyCode::Char('f') => Some(Message::RequestForceQuit),
-                KeyCode::Char('R') => Some(Message::RefreshList),
-                KeyCode::Char('q') => Some(Message::Quit),
+            };
+        }
+
+        if self.filter_active {
+            return match key.code {
+                KeyCode::Esc | KeyCode::Char('/') => Some(Message::ExitFilter),
+                KeyCode::Backspace => Some(Message::FilterBackspace),
+                KeyCode::Up | KeyCode::Char('\n') => None,  // ignore
+                KeyCode::Down => None,
+                KeyCode::Enter => {
+                    // Exit filter mode but keep the query active? No — just ignore Enter in filter.
+                    None
+                }
+                KeyCode::Char(c) => Some(Message::FilterInput(c)),
                 _ => None,
-            }
+            };
+        }
+
+        // Normal mode — handle navigation keys that also work during filter
+        // But we're not in filter mode here, so handle everything normally
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => Some(Message::MoveUp),
+            KeyCode::Down | KeyCode::Char('j') => Some(Message::MoveDown),
+            KeyCode::Char(' ') => Some(Message::ToggleSelect),
+            KeyCode::Char('a') => Some(Message::SelectAll),
+            KeyCode::Char('d') => Some(Message::DeselectAll),
+            KeyCode::Enter | KeyCode::Char('r') => Some(Message::RequestGracefulQuit),
+            KeyCode::Char('f') => Some(Message::RequestForceQuit),
+            KeyCode::Char('R') => Some(Message::RefreshList),
+            KeyCode::Char('q') => Some(Message::Quit),
+            KeyCode::Char('/') => Some(Message::EnterFilter),
+            KeyCode::Char('s') => Some(Message::CycleSort),
+            KeyCode::Esc => Some(Message::Quit),
+            _ => None,
         }
     }
 
@@ -202,11 +309,11 @@ impl App {
     fn refresh_list(&mut self) {
         if let Ok(apps) = process::list_gui_apps() {
             self.apps = apps;
-            // Remove selections for apps that no longer exist
             let current_pids: HashSet<u32> = self.apps.iter().map(|a| a.pid).collect();
             self.selected_pids.retain(|pid| current_pids.contains(pid));
-            if self.selected_index >= self.apps.len() && !self.apps.is_empty() {
-                self.selected_index = self.apps.len() - 1;
+            let visible_len = self.filtered_sorted_apps().len();
+            if self.selected_index >= visible_len && visible_len > 0 {
+                self.selected_index = visible_len - 1;
             }
         }
     }

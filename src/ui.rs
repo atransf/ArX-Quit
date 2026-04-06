@@ -42,14 +42,46 @@ fn draw_header(frame: &mut Frame, area: Rect) {
     frame.render_widget(header, area);
 }
 
+fn format_memory(kb: u64) -> String {
+    if kb < 1024 {
+        "< 1MB".to_string()
+    } else {
+        format!("{}MB", kb / 1024)
+    }
+}
+
 fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
-    let items: Vec<ListItem> = app
-        .apps
+    let visible = app.filtered_sorted_apps();
+
+    // If filter is active, split the area to show filter input bar
+    if app.filter_active {
+        let sub = Layout::vertical([
+            Constraint::Length(1),
+            Constraint::Min(3),
+        ])
+        .split(area);
+
+        let filter_line = Line::from(vec![
+            Span::styled(" Filter: ", Style::default().fg(Color::Yellow)),
+            Span::styled(&app.filter_query, Style::default().fg(Color::White)),
+            Span::styled("_", Style::default().fg(Color::Yellow)),
+        ]);
+        frame.render_widget(Paragraph::new(filter_line), sub[0]);
+        draw_app_list_inner(frame, sub[1], app, &visible);
+    } else {
+        draw_app_list_inner(frame, area, app, &visible);
+    }
+}
+
+fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
+    let items: Vec<ListItem> = visible
         .iter()
         .map(|a| {
             let is_selected = app.selected_pids.contains(&a.pid);
-            let marker = if is_selected { "● " } else { "  " };
+            let marker = if is_selected { "\u{25cf} " } else { "  " };
             let name_color = if is_selected { Color::Cyan } else { Color::White };
+            let mem_str = format_memory(a.memory_kb);
+            let cpu_str = format!("{:.1}%", a.cpu_percent);
             let line = Line::from(vec![
                 Span::styled(marker, Style::default().fg(Color::Cyan)),
                 Span::styled(
@@ -61,7 +93,11 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
                     Style::default().fg(Color::DarkGray),
                 ),
                 Span::styled(
-                    format!("  PID: {}", a.pid),
+                    format!("  PID: {:<8}", a.pid),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(
+                    format!("  {}  {}", mem_str, cpu_str),
                     Style::default().fg(Color::DarkGray),
                 ),
             ]);
@@ -69,10 +105,17 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
         })
         .collect();
 
-    let title = if app.selected_pids.is_empty() {
-        format!(" Applications ({}) ", app.apps.len())
+    let sort_label = app.sort_mode.label();
+    let title = if app.filter_active && !app.filter_query.is_empty() {
+        if app.selected_pids.is_empty() {
+            format!(" Applications ({}) [{}] Filter: {} ", visible.len(), sort_label, app.filter_query)
+        } else {
+            format!(" Applications ({}) [{}] Filter: {} \u{2014} {} selected ", visible.len(), sort_label, app.filter_query, app.selected_pids.len())
+        }
+    } else if app.selected_pids.is_empty() {
+        format!(" Applications ({}) [{}] ", visible.len(), sort_label)
     } else {
-        format!(" Applications ({}) — {} selected ", app.apps.len(), app.selected_pids.len())
+        format!(" Applications ({}) [{}] \u{2014} {} selected ", visible.len(), sort_label, app.selected_pids.len())
     };
 
     let list = List::new(items)
@@ -88,7 +131,7 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
                 .fg(Color::White)
                 .add_modifier(Modifier::BOLD),
         )
-        .highlight_symbol("▶ ");
+        .highlight_symbol("\u{25b6} ");
 
     let mut state = ListState::default();
     state.select(Some(app.selected_index));
@@ -97,7 +140,7 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
     let mut lines = vec![Line::from(vec![
-        Span::styled(" ↑↓/jk", Style::default().fg(Color::Yellow)),
+        Span::styled(" \u{2191}\u{2193}/jk", Style::default().fg(Color::Yellow)),
         Span::raw(": Navigate  "),
         Span::styled("Space", Style::default().fg(Color::Yellow)),
         Span::raw(": Select  "),
@@ -109,15 +152,17 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(": Quit  "),
         Span::styled("f", Style::default().fg(Color::Yellow)),
         Span::raw(": Force  "),
-        Span::styled("R", Style::default().fg(Color::Yellow)),
-        Span::raw(": Refresh  "),
+        Span::styled("/", Style::default().fg(Color::Yellow)),
+        Span::raw(": Filter  "),
+        Span::styled("s", Style::default().fg(Color::Yellow)),
+        Span::raw(": Sort  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(": Exit"),
     ])];
 
     if let Some((ref msg, success)) = app.status_message {
         let color = if success { Color::Green } else { Color::Red };
-        let prefix = if success { " ✓ " } else { " ✗ " };
+        let prefix = if success { " \u{2713} " } else { " \u{2717} " };
         lines.push(Line::from(Span::styled(
             format!("{}{}", prefix, msg),
             Style::default().fg(color),
@@ -162,7 +207,7 @@ fn draw_confirm_dialog(frame: &mut Frame, app_names: &[String], action: QuitActi
         ]));
         for name in app_names.iter().take(8) {
             text.push(Line::from(Span::styled(
-                format!("    • {}", name),
+                format!("    \u{2022} {}", name),
                 Style::default().fg(Color::White),
             )));
         }
@@ -183,7 +228,6 @@ fn draw_confirm_dialog(frame: &mut Frame, app_names: &[String], action: QuitActi
         Span::raw(" to cancel"),
     ]));
 
-    // Size the dialog based on content
     let height_pct = if app_names.len() > 1 { 50 } else { 30 };
     let area = centered_rect(50, height_pct, frame.area());
 

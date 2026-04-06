@@ -1,4 +1,5 @@
 use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -6,6 +7,8 @@ pub struct GuiApp {
     pub name: String,
     pub pid: u32,
     pub bundle_id: String,
+    pub memory_kb: u64,
+    pub cpu_percent: f32,
 }
 
 fn run_applescript(script: &str) -> Result<String> {
@@ -28,6 +31,39 @@ fn parse_applescript_list(raw: &str) -> Vec<String> {
         return Vec::new();
     }
     raw.split(", ").map(|s| s.trim().to_string()).collect()
+}
+
+/// Batch-fetch RSS (KB) and CPU% for a list of PIDs using a single `ps` call.
+fn fetch_resource_usage(pids: &[u32]) -> HashMap<u32, (u64, f32)> {
+    let mut map = HashMap::new();
+    if pids.is_empty() {
+        return map;
+    }
+
+    let pid_args: Vec<String> = pids.iter().map(|p| p.to_string()).collect();
+    let pid_list = pid_args.join(",");
+
+    let output = Command::new("ps")
+        .args(["-o", "pid=,rss=,pcpu=", "-p", &pid_list])
+        .output();
+
+    if let Ok(output) = output {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for line in stdout.lines() {
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                if let (Ok(pid), Ok(rss), Ok(cpu)) = (
+                    parts[0].parse::<u32>(),
+                    parts[1].parse::<u64>(),
+                    parts[2].parse::<f32>(),
+                ) {
+                    map.insert(pid, (rss, cpu));
+                }
+            }
+        }
+    }
+
+    map
 }
 
 pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
@@ -60,9 +96,21 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
                 name,
                 pid,
                 bundle_id,
+                memory_kb: 0,
+                cpu_percent: 0.0,
             })
         })
         .collect();
+
+    // Batch fetch resource usage
+    let all_pids: Vec<u32> = apps.iter().map(|a| a.pid).collect();
+    let usage = fetch_resource_usage(&all_pids);
+    for app in &mut apps {
+        if let Some(&(rss, cpu)) = usage.get(&app.pid) {
+            app.memory_kb = rss;
+            app.cpu_percent = cpu;
+        }
+    }
 
     apps.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     Ok(apps)
