@@ -34,20 +34,30 @@ Built with Rust and [Ratatui](https://ratatui.rs/).
 - macOS
 - [Rust](https://rustup.rs/) (1.85+)
 
-### Build from source
+### Setup script
 
 ```bash
 git clone https://git.cyberarx.systems/cyberarx/ArX-Quit.git
 cd ArX-Quit
-cargo build --release
+bash setup.sh
 ```
 
-The binary will be at `target/release/arx-quit`.
+The setup script provides three options:
 
-### Run directly
+1. **Install** — builds from source and installs `arxkill` to `/usr/local/bin`
+2. **Update** — rebuilds and replaces the existing binary
+3. **Uninstall** — removes the binary
+
+### Run directly (without installing)
 
 ```bash
 cargo run
+```
+
+### Run after install
+
+```bash
+arxkill
 ```
 
 ## Keybindings
@@ -102,7 +112,7 @@ protected = ["Safari", "Terminal"]
 
 1. **Listing apps** — Uses AppleScript via `osascript` to query System Events for all foreground (non-background) processes, retrieving names, bundle identifiers, and PIDs
 2. **Real-time CPU** — Samples cumulative CPU time via `ps cputime` every second and computes delta-based CPU% between snapshots
-3. **Graceful quit** — Sends `tell application "AppName" to quit` via AppleScript, allowing the app to save state and close cleanly
+3. **Graceful quit** — Sends `tell application "AppName" to quit` via AppleScript (non-blocking), allowing the app to save state and close cleanly
 4. **Force quit** — Sends `kill -9 <PID>` to immediately terminate the process
 5. **Restart** — Graceful quit followed by `open -b <bundle_id>` after a short delay
 

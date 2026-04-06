@@ -2,7 +2,7 @@ mod app;
 mod process;
 mod ui;
 
-use app::{App, Message};
+use app::App;
 use anyhow::Result;
 use crossterm::{
     event::{self, Event, KeyEventKind, EnableMouseCapture, DisableMouseCapture},
@@ -11,7 +11,13 @@ use crossterm::{
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io;
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
+
+enum BgResult {
+    AppList(Vec<process::GuiApp>),
+    CpuRss(Vec<process::GuiApp>, process::CpuSnapshot),
+}
 
 fn main() -> Result<()> {
     let original_hook = std::panic::take_hook();
@@ -33,16 +39,52 @@ fn main() -> Result<()> {
     let mut last_cpu = Instant::now();
     let mut last_list = Instant::now();
 
+    let (tx, rx) = mpsc::channel::<BgResult>();
+
+    let poll_interval = Duration::from_millis(16);
+
     while app.running {
         terminal.draw(|frame| ui::draw(frame, &mut app))?;
 
         app.clear_stale_status();
 
-        let cpu_due = cpu_tick.saturating_sub(last_cpu.elapsed());
-        let list_due = list_tick.saturating_sub(last_list.elapsed());
-        let timeout = cpu_due.min(list_due);
+        // Collect any background results without blocking
+        while let Ok(result) = rx.try_recv() {
+            match result {
+                BgResult::AppList(apps) => {
+                    app.apply_app_list(apps);
+                }
+                BgResult::CpuRss(updated_apps, new_snap) => {
+                    app.apply_cpu_rss(updated_apps, new_snap);
+                }
+            }
+        }
 
-        if event::poll(timeout)? {
+        // Spawn background refresh for app list
+        if last_list.elapsed() >= list_tick {
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                if let Ok(apps) = process::list_gui_apps() {
+                    tx.send(BgResult::AppList(apps)).ok();
+                }
+            });
+            last_list = Instant::now();
+        }
+
+        // Spawn background refresh for CPU/RSS
+        if last_cpu.elapsed() >= cpu_tick {
+            if let Some(prev_snap) = app.take_cpu_snapshot() {
+                let mut apps_clone = app.apps.clone();
+                let tx = tx.clone();
+                std::thread::spawn(move || {
+                    let new_snap = process::refresh_cpu_rss(&mut apps_clone, &prev_snap);
+                    tx.send(BgResult::CpuRss(apps_clone, new_snap)).ok();
+                });
+            }
+            last_cpu = Instant::now();
+        }
+
+        if event::poll(poll_interval)? {
             match event::read()? {
                 Event::Key(key) if key.kind == KeyEventKind::Press => {
                     if let Some(msg) = app.handle_key_event(key) {
@@ -56,15 +98,6 @@ fn main() -> Result<()> {
                 }
                 _ => {}
             }
-        }
-
-        if last_cpu.elapsed() >= cpu_tick {
-            app.update(Message::RefreshCpu);
-            last_cpu = Instant::now();
-        }
-        if last_list.elapsed() >= list_tick {
-            app.update(Message::RefreshList);
-            last_list = Instant::now();
         }
     }
 

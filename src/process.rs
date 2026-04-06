@@ -219,7 +219,14 @@ pub fn refresh_cpu_rss(apps: &mut Vec<GuiApp>, prev: &CpuSnapshot) -> CpuSnapsho
 pub fn graceful_quit(app: &GuiApp) -> Result<()> {
     let escaped_name = app.name.replace('\\', "\\\\").replace('"', "\\\"");
     let script = format!("tell application \"{}\" to quit", escaped_name);
-    run_applescript(&script)?;
+    Command::new("osascript")
+        .arg("-e")
+        .arg(&script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .context("Failed to run osascript")?;
     Ok(())
 }
 

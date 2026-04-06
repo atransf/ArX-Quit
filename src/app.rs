@@ -125,7 +125,6 @@ pub enum Message {
     ToggleHistory,
     TogglePreview,
     RequestQuitAll,
-    RefreshCpu,
 }
 
 impl App {
@@ -404,12 +403,6 @@ impl App {
             Message::TogglePreview => {
                 self.show_preview = !self.show_preview;
             }
-            Message::RefreshCpu => {
-                if let Some(prev) = self.cpu_snapshot.take() {
-                    let new_snap = process::refresh_cpu_rss(&mut self.apps, &prev);
-                    self.cpu_snapshot = Some(new_snap);
-                }
-            }
         }
     }
 
@@ -485,13 +478,32 @@ impl App {
 
     fn refresh_list(&mut self) {
         if let Ok(apps) = process::list_gui_apps() {
-            self.apps = apps;
-            let current_pids: HashSet<u32> = self.apps.iter().map(|a| a.pid).collect();
-            self.selected_pids.retain(|pid| current_pids.contains(pid));
-            let visible_len = self.filtered_sorted_apps().len();
-            if self.selected_index >= visible_len && visible_len > 0 {
-                self.selected_index = visible_len - 1;
+            self.apply_app_list(apps);
+        }
+    }
+
+    pub fn apply_app_list(&mut self, apps: Vec<GuiApp>) {
+        self.apps = apps;
+        let current_pids: HashSet<u32> = self.apps.iter().map(|a| a.pid).collect();
+        self.selected_pids.retain(|pid| current_pids.contains(pid));
+        let visible_len = self.filtered_sorted_apps().len();
+        if self.selected_index >= visible_len && visible_len > 0 {
+            self.selected_index = visible_len - 1;
+        }
+    }
+
+    pub fn apply_cpu_rss(&mut self, updated_apps: Vec<GuiApp>, new_snap: CpuSnapshot) {
+        // Merge CPU/RSS data from background thread into current app list
+        for app in &mut self.apps {
+            if let Some(updated) = updated_apps.iter().find(|a| a.pid == app.pid) {
+                app.memory_kb = updated.memory_kb;
+                app.cpu_percent = updated.cpu_percent;
             }
         }
+        self.cpu_snapshot = Some(new_snap);
+    }
+
+    pub fn take_cpu_snapshot(&mut self) -> Option<CpuSnapshot> {
+        self.cpu_snapshot.take()
     }
 }
