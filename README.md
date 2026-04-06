@@ -6,7 +6,7 @@
  /_/   \_\_|   /_/\_\     \__\_\ \__,_|_| \__|
 ```
 
-[![CI](https://github.com/cyberarx/ArX-Quit/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberarx/ArX-Quit/actions/workflows/ci.yml)
+[![CI](https://github.com/atransf/ArX-Quit/actions/workflows/ci.yml/badge.svg)](https://github.com/atransf/ArX-Quit/actions/workflows/ci.yml)
 
 A terminal UI application for macOS that lists all running GUI applications and lets you quit them — gracefully or by force.
 
@@ -39,7 +39,7 @@ Built with Rust and [Ratatui](https://ratatui.rs/).
 ### Setup script
 
 ```bash
-git clone https://github.com/cyberarx/ArX-Quit.git
+git clone https://github.com/atransf/ArX-Quit.git
 cd ArX-Quit
 bash setup.sh
 ```

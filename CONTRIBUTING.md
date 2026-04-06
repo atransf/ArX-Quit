@@ -10,7 +10,7 @@ Thanks for your interest in contributing!
 ## Building
 
 ```bash
-git clone https://github.com/cyberarx/ArX-Quit.git
+git clone https://github.com/atransf/ArX-Quit.git
 cd ArX-Quit
 cargo build
 ```
@@ -37,7 +37,7 @@ cargo fmt --check
 
 ## Reporting issues
 
-Open a [GitHub issue](https://github.com/cyberarx/ArX-Quit/issues) with:
+Open a [GitHub issue](https://github.com/atransf/ArX-Quit/issues) with:
 - macOS version
 - Steps to reproduce
 - Expected vs actual behavior
