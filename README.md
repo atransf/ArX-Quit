@@ -37,7 +37,7 @@ Built with Rust and [Ratatui](https://ratatui.rs/).
 ### Setup script
 
 ```bash
-git clone https://git.cyberarx.systems/cyberarx/ArX-Quit.git
+git clone https://github.com/cyberarx/ArX-Quit.git
 cd ArX-Quit
 bash setup.sh
 ```

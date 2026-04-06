@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "MIT"
 description = "A terminal UI to list and quit macOS GUI applications with real-time CPU monitoring"
-repository = "https://git.cyberarx.systems/cyberarx/ArX-Quit"
+repository = "https://github.com/cyberarx/ArX-Quit"
 keywords = ["macos", "process-manager", "tui", "ratatui"]
 categories = ["utility", "command-line-utilities"]
 
