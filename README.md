@@ -6,6 +6,8 @@
  /_/   \_\_|   /_/\_\     \__\_\ \__,_|_| \__|
 ```
 
+[![CI](https://github.com/cyberarx/ArX-Quit/actions/workflows/ci.yml/badge.svg)](https://github.com/cyberarx/ArX-Quit/actions/workflows/ci.yml)
+
 A terminal UI application for macOS that lists all running GUI applications and lets you quit them — gracefully or by force.
 
 Built with Rust and [Ratatui](https://ratatui.rs/).

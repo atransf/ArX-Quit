@@ -1,5 +1,5 @@
 use crate::process::{self, CpuSnapshot, GuiApp};
-use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
+use crossterm::event::{KeyCode, KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::widgets::ListState;
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
@@ -54,10 +54,10 @@ fn load_protected_apps() -> HashSet<String> {
             .join(".config")
             .join("arx-quit")
             .join("protected.toml");
-        if let Ok(contents) = std::fs::read_to_string(&config_path) {
-            if let Ok(config) = toml::from_str::<ProtectedConfig>(&contents) {
-                set.extend(config.protected);
-            }
+        if let Ok(contents) = std::fs::read_to_string(&config_path)
+            && let Ok(config) = toml::from_str::<ProtectedConfig>(&contents)
+        {
+            set.extend(config.protected);
         }
     }
 
@@ -171,8 +171,12 @@ impl App {
         };
 
         match self.sort_mode {
-            SortMode::NameAsc => result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase())),
-            SortMode::NameDesc => result.sort_by(|a, b| b.name.to_lowercase().cmp(&a.name.to_lowercase())),
+            SortMode::NameAsc => {
+                result.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+            }
+            SortMode::NameDesc => {
+                result.sort_by(|a, b| b.name.to_lowercase().cmp(&a.name.to_lowercase()))
+            }
             SortMode::PidAsc => result.sort_by_key(|a| a.pid),
             SortMode::MemDesc => result.sort_by(|a, b| b.memory_kb.cmp(&a.memory_kb)),
         }
@@ -183,11 +187,22 @@ impl App {
     fn target_apps(&self) -> Vec<&GuiApp> {
         let visible = self.filtered_sorted_apps();
         let candidates = if self.selected_pids.is_empty() {
-            visible.get(self.selected_index).copied().into_iter().collect::<Vec<_>>()
+            visible
+                .get(self.selected_index)
+                .copied()
+                .into_iter()
+                .collect::<Vec<_>>()
         } else {
-            visible.iter().filter(|a| self.selected_pids.contains(&a.pid)).copied().collect()
+            visible
+                .iter()
+                .filter(|a| self.selected_pids.contains(&a.pid))
+                .copied()
+                .collect()
         };
-        candidates.into_iter().filter(|a| !self.is_protected(&a.name)).collect()
+        candidates
+            .into_iter()
+            .filter(|a| !self.is_protected(&a.name))
+            .collect()
     }
 
     pub fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Option<Message> {
@@ -210,12 +225,13 @@ impl App {
                 let clamped = app_index.min(visible_len - 1);
 
                 let now = std::time::Instant::now();
-                if let Some((last_row, last_time)) = self.last_click {
-                    if last_row == row && now.duration_since(last_time) < Duration::from_millis(500) {
-                        self.last_click = None;
-                        self.selected_index = clamped;
-                        return Some(Message::ToggleSelect);
-                    }
+                if let Some((last_row, last_time)) = self.last_click
+                    && last_row == row
+                    && now.duration_since(last_time) < Duration::from_millis(500)
+                {
+                    self.last_click = None;
+                    self.selected_index = clamped;
+                    return Some(Message::ToggleSelect);
                 }
                 self.last_click = Some((row, now));
                 self.selected_index = clamped;
@@ -253,7 +269,8 @@ impl App {
             }
             Message::SelectAll => {
                 let visible = self.filtered_sorted_apps();
-                self.selected_pids = visible.iter()
+                self.selected_pids = visible
+                    .iter()
                     .filter(|a| !self.is_protected(&a.name))
                     .map(|a| a.pid)
                     .collect();
@@ -316,7 +333,11 @@ impl App {
                             QuitAction::Force => process::force_quit(app),
                         };
                         let success = result.is_ok();
-                        if success { succeeded += 1 } else { failed += 1 }
+                        if success {
+                            succeeded += 1
+                        } else {
+                            failed += 1
+                        }
                         self.quit_history.push(HistoryEntry {
                             timestamp: SystemTime::now(),
                             app_name: app.name.clone(),
@@ -331,14 +352,29 @@ impl App {
                     let total = targets.len();
                     if total == 1 {
                         if failed == 0 {
-                            self.set_status(format!("{} — {} successfully", dialog.app_names[0], action_name), true);
+                            self.set_status(
+                                format!("{} — {} successfully", dialog.app_names[0], action_name),
+                                true,
+                            );
                         } else {
-                            self.set_status(format!("Failed to {} {}", action_name, dialog.app_names[0]), false);
+                            self.set_status(
+                                format!("Failed to {} {}", action_name, dialog.app_names[0]),
+                                false,
+                            );
                         }
                     } else if failed == 0 {
-                        self.set_status(format!("{} apps {} successfully", succeeded, action_name), true);
+                        self.set_status(
+                            format!("{} apps {} successfully", succeeded, action_name),
+                            true,
+                        );
                     } else {
-                        self.set_status(format!("{} succeeded, {} failed to {}", succeeded, failed, action_name), failed == total);
+                        self.set_status(
+                            format!(
+                                "{} succeeded, {} failed to {}",
+                                succeeded, failed, action_name
+                            ),
+                            failed == total,
+                        );
                     }
 
                     self.selected_pids.clear();
@@ -388,7 +424,8 @@ impl App {
                 self.show_history = !self.show_history;
             }
             Message::RequestQuitAll => {
-                let targets: Vec<String> = self.apps
+                let targets: Vec<String> = self
+                    .apps
                     .iter()
                     .filter(|a| !self.is_protected(&a.name))
                     .map(|a| a.name.clone())
@@ -464,10 +501,10 @@ impl App {
 
     fn warn_if_protected(&mut self) {
         let visible = self.filtered_sorted_apps();
-        if let Some(app) = visible.get(self.selected_index) {
-            if self.is_protected(&app.name) {
-                self.set_status(format!("Cannot quit protected app: {}", app.name), false);
-            }
+        if let Some(app) = visible.get(self.selected_index)
+            && self.is_protected(&app.name)
+        {
+            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
         }
     }
 

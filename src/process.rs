@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::collections::HashMap;
 use std::process::Command;
 use std::time::Instant;
@@ -25,23 +25,33 @@ impl CpuSnapshot {
     pub fn capture(pids: &[u32]) -> Self {
         let mut ticks = HashMap::new();
         if pids.is_empty() {
-            return Self { taken_at: Instant::now(), ticks };
+            return Self {
+                taken_at: Instant::now(),
+                ticks,
+            };
         }
-        let pid_list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+        let pid_list = pids
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
         if let Ok(output) = Command::new("ps")
             .args(["-o", "pid=,cputime=", "-p", &pid_list])
             .output()
         {
             for line in String::from_utf8_lossy(&output.stdout).lines() {
                 let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 2 {
-                    if let Ok(pid) = parts[0].parse::<u32>() {
-                        ticks.insert(pid, parse_cputime(parts[1]));
-                    }
+                if parts.len() >= 2
+                    && let Ok(pid) = parts[0].parse::<u32>()
+                {
+                    ticks.insert(pid, parse_cputime(parts[1]));
                 }
             }
         }
-        Self { taken_at: Instant::now(), ticks }
+        Self {
+            taken_at: Instant::now(),
+            ticks,
+        }
     }
 
     /// Real-time CPU% for each PID: (Δ cpu_seconds / Δ wall_seconds) × 100.
@@ -109,7 +119,11 @@ fn fetch_rss(pids: &[u32]) -> HashMap<u32, u64> {
         return map;
     }
 
-    let pid_list = pids.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(",");
+    let pid_list = pids
+        .iter()
+        .map(|p| p.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
 
     if let Ok(output) = Command::new("ps")
         .args(["-o", "pid=,rss=", "-p", &pid_list])
@@ -118,10 +132,10 @@ fn fetch_rss(pids: &[u32]) -> HashMap<u32, u64> {
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             let parts: Vec<&str> = line.split_whitespace().collect();
-            if parts.len() >= 2 {
-                if let (Ok(pid), Ok(rss)) = (parts[0].parse::<u32>(), parts[1].parse::<u64>()) {
-                    map.insert(pid, rss);
-                }
+            if parts.len() >= 2
+                && let (Ok(pid), Ok(rss)) = (parts[0].parse::<u32>(), parts[1].parse::<u64>())
+            {
+                map.insert(pid, rss);
             }
         }
     }
@@ -179,7 +193,8 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
     ) {
         let states = parse_applescript_list(&raw);
         let names_list = parse_applescript_list(&names_raw);
-        let responding_map: HashMap<&str, bool> = names_list.iter()
+        let responding_map: HashMap<&str, bool> = names_list
+            .iter()
             .zip(states.iter())
             .map(|(n, s)| (n.as_str(), s == "true"))
             .collect();
@@ -195,7 +210,7 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
 }
 
 /// Fast CPU + RSS refresh using only `ps` (no AppleScript).
-pub fn refresh_cpu_rss(apps: &mut Vec<GuiApp>, prev: &CpuSnapshot) -> CpuSnapshot {
+pub fn refresh_cpu_rss(apps: &mut [GuiApp], prev: &CpuSnapshot) -> CpuSnapshot {
     let pids: Vec<u32> = apps.iter().map(|a| a.pid).collect();
     if pids.is_empty() {
         return CpuSnapshot::capture(&[]);
@@ -231,11 +246,7 @@ pub fn graceful_quit(app: &GuiApp) -> Result<()> {
 }
 
 pub fn relaunch(bundle_id: &str) {
-    Command::new("open")
-        .arg("-b")
-        .arg(bundle_id)
-        .output()
-        .ok();
+    Command::new("open").arg("-b").arg(bundle_id).output().ok();
 }
 
 pub fn force_quit(app: &GuiApp) -> Result<()> {
@@ -247,7 +258,12 @@ pub fn force_quit(app: &GuiApp) -> Result<()> {
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("Force quit failed for {} (PID {}): {}", app.name, app.pid, stderr);
+        bail!(
+            "Force quit failed for {} (PID {}): {}",
+            app.name,
+            app.pid,
+            stderr
+        );
     }
 
     Ok(())
