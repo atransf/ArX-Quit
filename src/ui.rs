@@ -6,11 +6,54 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
+const HINTS: &[(&str, &str)] = &[
+    ("\u{2191}\u{2193}/jk", "Navigate"),
+    ("Space", "Select"),
+    ("a/d", "All/None"),
+    ("Enter/r", "Quit"),
+    ("f", "Force"),
+    ("R", "Restart"),
+    ("e", "Refresh"),
+    ("/", "Filter"),
+    ("s", "Sort"),
+    ("g", "Group"),
+    ("l", "History"),
+    ("Tab/p", "Preview"),
+    ("q", "Exit"),
+];
+
+fn hint_lines(inner_width: u16) -> Vec<Line<'static>> {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used: u16 = 0;
+
+    for &(key, label) in HINTS {
+        let w = 1 + key.len() as u16 + 2 + label.len() as u16 + 2;
+        if used + w > inner_width && !spans.is_empty() {
+            lines.push(Line::from(std::mem::take(&mut spans)));
+            used = 0;
+        }
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(key, Style::default().fg(Color::Yellow)));
+        spans.push(Span::raw(format!(": {}  ", label)));
+        used += w;
+    }
+    if !spans.is_empty() {
+        lines.push(Line::from(spans));
+    }
+    lines
+}
+
 pub fn draw(frame: &mut Frame, app: &App) {
+    let inner_width = frame.area().width.saturating_sub(2);
+    let hint_row_count = hint_lines(inner_width).len() as u16;
+    let status_row = app.status_message.is_some() as u16;
+    let footer_height = hint_row_count + status_row + 2;
+
     let chunks = Layout::vertical([
         Constraint::Length(8),
         Constraint::Min(5),
-        Constraint::Length(3),
+        Constraint::Length(footer_height),
     ])
     .split(frame.area());
 
@@ -327,36 +370,8 @@ fn draw_history_overlay(frame: &mut Frame, app: &App) {
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
-    let mut lines = vec![Line::from(vec![
-        Span::styled(" \u{2191}\u{2193}/jk", Style::default().fg(Color::Yellow)),
-        Span::raw(": Navigate  "),
-        Span::styled("Space", Style::default().fg(Color::Yellow)),
-        Span::raw(": Select  "),
-        Span::styled("a", Style::default().fg(Color::Yellow)),
-        Span::raw("/"),
-        Span::styled("d", Style::default().fg(Color::Yellow)),
-        Span::raw(": All/None  "),
-        Span::styled("Enter/r", Style::default().fg(Color::Yellow)),
-        Span::raw(": Quit  "),
-        Span::styled("f", Style::default().fg(Color::Yellow)),
-        Span::raw(": Force  "),
-        Span::styled("R", Style::default().fg(Color::Yellow)),
-        Span::raw(": Restart  "),
-        Span::styled("e", Style::default().fg(Color::Yellow)),
-        Span::raw(": Refresh  "),
-        Span::styled("/", Style::default().fg(Color::Yellow)),
-        Span::raw(": Filter  "),
-        Span::styled("s", Style::default().fg(Color::Yellow)),
-        Span::raw(": Sort  "),
-        Span::styled("g", Style::default().fg(Color::Yellow)),
-        Span::raw(": Group  "),
-        Span::styled("l", Style::default().fg(Color::Yellow)),
-        Span::raw(": History  "),
-        Span::styled("Tab/p", Style::default().fg(Color::Yellow)),
-        Span::raw(": Preview  "),
-        Span::styled("q", Style::default().fg(Color::Yellow)),
-        Span::raw(": Exit"),
-    ])];
+    let inner_width = area.width.saturating_sub(2);
+    let mut lines = hint_lines(inner_width);
 
     if let Some((ref msg, success)) = app.status_message {
         let color = if success { Color::Green } else { Color::Red };
@@ -371,7 +386,6 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
     frame.render_widget(footer, area);
 }
-
 fn draw_confirm_dialog(frame: &mut Frame, app_names: &[String], action: QuitAction) {
     let action_text = match action {
         QuitAction::Graceful => "Quit",
