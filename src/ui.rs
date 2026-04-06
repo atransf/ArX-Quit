@@ -6,8 +6,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
-use std::collections::BTreeMap;
-
 pub fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::vertical([
         Constraint::Length(8),
@@ -164,111 +162,69 @@ fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
 fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
     let sort_label = app.sort_mode.label();
     let grouped_tag = if app.group_mode { " [Grouped]" } else { "" };
-    let title = if app.filter_active && !app.filter_query.is_empty() {
-        if app.selected_pids.is_empty() {
-            format!(" Applications ({}) [{}]{} Filter: {} ", visible.len(), sort_label, grouped_tag, app.filter_query)
-        } else {
-            format!(" Applications ({}) [{}]{} Filter: {} \u{2014} {} selected ", visible.len(), sort_label, grouped_tag, app.filter_query, app.selected_pids.len())
-        }
-    } else if app.selected_pids.is_empty() {
-        format!(" Applications ({}) [{}]{} ", visible.len(), sort_label, grouped_tag)
+    let filter_tag = if app.filter_active && !app.filter_query.is_empty() {
+        format!(" Filter: {}", app.filter_query)
     } else {
-        format!(" Applications ({}) [{}]{} \u{2014} {} selected ", visible.len(), sort_label, grouped_tag, app.selected_pids.len())
+        String::new()
     };
+    let select_tag = if app.selected_pids.is_empty() {
+        String::new()
+    } else {
+        format!(" \u{2014} {} selected", app.selected_pids.len())
+    };
+    let title = format!(" Applications ({}) [{}]{}{}{} ", visible.len(), sort_label, grouped_tag, filter_tag, select_tag);
 
-    if app.group_mode {
-        // Build groups preserving sort order
+    let (items, highlight) = if app.group_mode {
         let group_order = ["Apple", "Google", "Microsoft", "JetBrains", "GitHub / Electron", "Other"];
-        let mut groups: BTreeMap<&str, Vec<&crate::process::GuiApp>> = BTreeMap::new();
-        for &a in visible {
-            let group = app_group_name(&a.bundle_id);
-            groups.entry(group).or_default().push(a);
-        }
-
-        // Build items and a mapping from visual row to app index
         let mut items: Vec<ListItem> = Vec::new();
-        // visual_to_app: maps visual index -> app index in `visible`, None for headers
-        let mut visual_to_app: Vec<Option<usize>> = Vec::new();
-        // We need to reorder visible by groups but keep within-group order from filtered_sorted_apps
-        // Build a mapping: for each group, which indices from visible belong to it
-        let mut group_indices: Vec<(&str, Vec<usize>)> = Vec::new();
+        let mut highlight_visual: Option<usize> = None;
+
         for &group_name in &group_order {
             let indices: Vec<usize> = visible.iter().enumerate()
                 .filter(|(_, a)| app_group_name(&a.bundle_id) == group_name)
                 .map(|(i, _)| i)
                 .collect();
-            if !indices.is_empty() {
-                group_indices.push((group_name, indices));
-            }
-        }
+            if indices.is_empty() { continue; }
 
-        // We need to remap selected_index. The app's selected_index refers to an index
-        // in the flat visible list. In grouped mode, we need to map it to a visual row.
-        // Build the visual rows and find which visual row corresponds to selected_index.
-        let mut highlight_visual: Option<usize> = None;
-
-        for (group_name, indices) in &group_indices {
-            // Header row
-            let header_text = format!("\u{2500}\u{2500} {} ({}) \u{2500}\u{2500}", group_name, indices.len());
             items.push(ListItem::new(Line::styled(
-                header_text,
+                format!("\u{2500}\u{2500} {} ({}) \u{2500}\u{2500}", group_name, indices.len()),
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )));
-            visual_to_app.push(None);
 
-            for &idx in indices {
-                let a = visible[idx];
-                items.push(ListItem::new(make_app_line(a, app)));
+            for idx in indices {
+                items.push(ListItem::new(make_app_line(visible[idx], app)));
                 if idx == app.selected_index {
                     highlight_visual = Some(items.len() - 1);
                 }
-                visual_to_app.push(Some(idx));
             }
         }
-
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray))
-                    .title(title),
-            )
-            .highlight_style(
-                Style::default()
-                    .bg(Color::DarkGray)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol("\u{25b6} ");
-
-        let mut state = ListState::default();
-        state.select(highlight_visual);
-        frame.render_stateful_widget(list, area, &mut state);
+        (items, highlight_visual)
     } else {
         let items: Vec<ListItem> = visible
             .iter()
             .map(|a| ListItem::new(make_app_line(a, app)))
             .collect();
+        (items, Some(app.selected_index))
+    };
 
-        let list = List::new(items)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray))
-                    .title(title),
-            )
-            .highlight_style(
-                Style::default()
-                    .bg(Color::DarkGray)
-                    .fg(Color::White)
-                    .add_modifier(Modifier::BOLD),
-            )
-            .highlight_symbol("\u{25b6} ");
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray))
+                .title(title),
+        )
+        .highlight_style(
+            Style::default()
+                .bg(Color::DarkGray)
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("\u{25b6} ");
 
-        let mut state = ListState::default();
-        state.select(Some(app.selected_index));
-        frame.render_stateful_widget(list, area, &mut state);
-    }
+    let mut state = ListState::default();
+    state.select(highlight);
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_preview_pane(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {

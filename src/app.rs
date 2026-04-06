@@ -151,7 +151,6 @@ impl App {
         self.protected_apps.contains(name)
     }
 
-    /// Returns apps after applying the current filter and sort.
     pub fn filtered_sorted_apps(&self) -> Vec<&GuiApp> {
         let mut result: Vec<&GuiApp> = if self.filter_query.is_empty() {
             self.apps.iter().collect()
@@ -173,9 +172,6 @@ impl App {
         result
     }
 
-    /// Returns the apps targeted by the current action:
-    /// all selected apps if any are selected, otherwise just the cursor app.
-    /// Excludes protected apps.
     fn target_apps(&self) -> Vec<&GuiApp> {
         let visible = self.filtered_sorted_apps();
         let candidates = if self.selected_pids.is_empty() {
@@ -191,19 +187,20 @@ impl App {
             MouseEventKind::ScrollUp => Some(Message::MoveUp),
             MouseEventKind::ScrollDown => Some(Message::MoveDown),
             MouseEventKind::Down(MouseButton::Left) => {
-                // List starts at row 9 (8-row header + 1 border)
+                // List starts at row 9 (8-row header + 1 border),
+                // plus 1 more if the filter bar is visible.
+                let list_start: u16 = if self.filter_active { 10 } else { 9 };
                 let row = mouse.row;
-                if row < 9 {
+                if row < list_start {
                     return None;
                 }
-                let app_index = (row - 9) as usize;
+                let app_index = (row - list_start) as usize;
                 let visible_len = self.filtered_sorted_apps().len();
                 if visible_len == 0 {
                     return None;
                 }
                 let clamped = app_index.min(visible_len - 1);
 
-                // Double-click detection
                 let now = std::time::Instant::now();
                 if let Some((last_row, last_time)) = self.last_click {
                     if last_row == row && now.duration_since(last_time) < Duration::from_millis(500) {
@@ -256,57 +253,33 @@ impl App {
             Message::DeselectAll => {
                 self.selected_pids.clear();
             }
-            Message::RequestGracefulQuit => {
+            Message::RequestGracefulQuit | Message::RequestForceQuit => {
                 let targets = self.target_apps();
                 if targets.is_empty() {
-                    // Check if the reason is protection
-                    let visible = self.filtered_sorted_apps();
-                    if let Some(app) = visible.get(self.selected_index) {
-                        if self.is_protected(&app.name) {
-                            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
-                        }
-                    }
+                    self.warn_if_protected();
                     return;
                 }
+                let action = if matches!(msg, Message::RequestForceQuit) {
+                    QuitAction::Force
+                } else {
+                    QuitAction::Graceful
+                };
                 let names: Vec<String> = targets.iter().map(|a| a.name.clone()).collect();
                 self.confirm_dialog = Some(ConfirmDialog {
                     app_names: names,
-                    action: QuitAction::Graceful,
-                });
-            }
-            Message::RequestForceQuit => {
-                let targets = self.target_apps();
-                if targets.is_empty() {
-                    let visible = self.filtered_sorted_apps();
-                    if let Some(app) = visible.get(self.selected_index) {
-                        if self.is_protected(&app.name) {
-                            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
-                        }
-                    }
-                    return;
-                }
-                let names: Vec<String> = targets.iter().map(|a| a.name.clone()).collect();
-                self.confirm_dialog = Some(ConfirmDialog {
-                    app_names: names,
-                    action: QuitAction::Force,
+                    action,
                 });
             }
             Message::RequestRestart => {
                 let targets = self.target_apps();
                 if targets.is_empty() {
-                    let visible = self.filtered_sorted_apps();
-                    if let Some(app) = visible.get(self.selected_index) {
-                        if self.is_protected(&app.name) {
-                            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
-                        }
-                    }
+                    self.warn_if_protected();
                     return;
                 }
                 let app = targets[0].clone();
                 let bundle_id = app.bundle_id.clone();
                 let name = app.name.clone();
 
-                // Gracefully quit first
                 if process::graceful_quit(&app).is_ok() {
                     self.set_status(format!("Restarting {}...", name), true);
                     std::thread::spawn(move || {
@@ -342,10 +315,7 @@ impl App {
                             QuitAction::Force => process::force_quit(app),
                         };
                         let success = result.is_ok();
-                        match result {
-                            Ok(()) => succeeded += 1,
-                            Err(_) => failed += 1,
-                        }
+                        if success { succeeded += 1 } else { failed += 1 }
                         self.quit_history.push(HistoryEntry {
                             timestamp: SystemTime::now(),
                             app_name: app.name.clone(),
@@ -442,10 +412,7 @@ impl App {
             return match key.code {
                 KeyCode::Esc | KeyCode::Char('/') => Some(Message::ExitFilter),
                 KeyCode::Backspace => Some(Message::FilterBackspace),
-                KeyCode::Up | KeyCode::Char('\n') => None,
-                KeyCode::Down => None,
-                KeyCode::Enter => None,
-                KeyCode::Char(c) => Some(Message::FilterInput(c)),
+                KeyCode::Char(c) if c != '\n' => Some(Message::FilterInput(c)),
                 _ => None,
             };
         }
@@ -477,6 +444,15 @@ impl App {
         {
             self.status_message = None;
             self.status_set_at = None;
+        }
+    }
+
+    fn warn_if_protected(&mut self) {
+        let visible = self.filtered_sorted_apps();
+        if let Some(app) = visible.get(self.selected_index) {
+            if self.is_protected(&app.name) {
+                self.set_status(format!("Cannot quit protected app: {}", app.name), false);
+            }
         }
     }
 

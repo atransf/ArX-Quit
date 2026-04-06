@@ -14,7 +14,6 @@ use std::io;
 use std::time::{Duration, Instant};
 
 fn main() -> Result<()> {
-    // Panic hook to restore terminal
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         disable_raw_mode().ok();
@@ -22,19 +21,16 @@ fn main() -> Result<()> {
         original_hook(panic_info);
     }));
 
-    // Terminal setup
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // App state
     let mut app = App::new();
     let tick_rate = Duration::from_secs(5);
     let mut last_tick = Instant::now();
 
-    // Main loop
     while app.running {
         terminal.draw(|frame| ui::draw(frame, &app))?;
 
@@ -63,7 +59,6 @@ fn main() -> Result<()> {
         }
     }
 
-    // Terminal teardown
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;

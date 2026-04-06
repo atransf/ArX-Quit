@@ -104,7 +104,6 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
         })
         .collect();
 
-    // Batch fetch resource usage
     let all_pids: Vec<u32> = apps.iter().map(|a| a.pid).collect();
     let usage = fetch_resource_usage(&all_pids);
     for app in &mut apps {
@@ -114,35 +113,18 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
         }
     }
 
-    // Batch freeze detection
-    let responding_raw = run_applescript(
+    if let Ok(raw) = run_applescript(
         "tell application \"System Events\" to get responding of every process whose background only is false",
-    );
-    if let Ok(raw) = responding_raw {
+    ) {
         let states = parse_applescript_list(&raw);
-        // Match states to apps by original order (before filtering self)
-        // We need to re-derive: the AppleScript returns values for ALL foreground processes,
-        // but we filtered out our own PID. We must match by index in the original unfiltered list.
-        // Since we filtered during construction, we need a different approach:
-        // Build a name->responding map instead.
-        // Actually the simplest: the states list corresponds 1:1 to the names/bundles/pids lists
-        // which were fetched in the same order. We filtered out our own PID, so we need to
-        // track which indices were kept.
-        // Let's just iterate states alongside apps (which may have fewer entries due to self-filter).
-        // Instead, fetch responding separately with names to correlate.
-        let names_for_responding = run_applescript(
-            "tell application \"System Events\" to get name of every process whose background only is false",
-        );
-        if let Ok(names_raw) = names_for_responding {
-            let names_list = parse_applescript_list(&names_raw);
-            let mut responding_map: HashMap<String, bool> = HashMap::new();
-            for (name, state) in names_list.into_iter().zip(states.into_iter()) {
-                responding_map.insert(name, state == "true");
-            }
-            for app in &mut apps {
-                if let Some(&responding) = responding_map.get(&app.name) {
-                    app.is_frozen = !responding;
-                }
+        let names_list = parse_applescript_list(&names_raw);
+        let responding_map: HashMap<&str, bool> = names_list.iter()
+            .zip(states.iter())
+            .map(|(n, s)| (n.as_str(), s == "true"))
+            .collect();
+        for app in &mut apps {
+            if let Some(&responding) = responding_map.get(app.name.as_str()) {
+                app.is_frozen = !responding;
             }
         }
     }
@@ -152,7 +134,8 @@ pub fn list_gui_apps() -> Result<Vec<GuiApp>> {
 }
 
 pub fn graceful_quit(app: &GuiApp) -> Result<()> {
-    let script = format!("tell application \"{}\" to quit", app.name);
+    let escaped_name = app.name.replace('\\', "\\\\").replace('"', "\\\"");
+    let script = format!("tell application \"{}\" to quit", escaped_name);
     run_applescript(&script)?;
     Ok(())
 }
