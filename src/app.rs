@@ -1,7 +1,7 @@
 use crate::process::{self, GuiApp};
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
 use std::collections::HashSet;
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SortMode {
@@ -31,6 +31,38 @@ impl SortMode {
     }
 }
 
+#[derive(serde::Deserialize)]
+struct ProtectedConfig {
+    protected: Vec<String>,
+}
+
+fn load_protected_apps() -> HashSet<String> {
+    let mut set: HashSet<String> = [
+        "Finder",
+        "loginwindow",
+        "SystemUIServer",
+        "Dock",
+        "WindowServer",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect();
+
+    if let Some(home) = std::env::var_os("HOME") {
+        let config_path = std::path::Path::new(&home)
+            .join(".config")
+            .join("arx-quit")
+            .join("protected.toml");
+        if let Ok(contents) = std::fs::read_to_string(&config_path) {
+            if let Ok(config) = toml::from_str::<ProtectedConfig>(&contents) {
+                set.extend(config.protected);
+            }
+        }
+    }
+
+    set
+}
+
 pub struct App {
     pub apps: Vec<GuiApp>,
     pub selected_index: usize,
@@ -46,6 +78,8 @@ pub struct App {
     pub show_history: bool,
     pub show_preview: bool,
     pub quit_history: Vec<HistoryEntry>,
+    pub protected_apps: HashSet<String>,
+    pub last_click: Option<(u16, std::time::Instant)>,
 }
 
 pub struct ConfirmDialog {
@@ -74,6 +108,7 @@ pub enum Message {
     DeselectAll,
     RequestGracefulQuit,
     RequestForceQuit,
+    RequestRestart,
     ConfirmYes,
     ConfirmNo,
     RefreshList,
@@ -91,6 +126,7 @@ pub enum Message {
 impl App {
     pub fn new() -> Self {
         let apps = process::list_gui_apps().unwrap_or_default();
+        let protected_apps = load_protected_apps();
         Self {
             apps,
             selected_index: 0,
@@ -106,7 +142,13 @@ impl App {
             show_history: false,
             show_preview: false,
             quit_history: Vec::new(),
+            protected_apps,
+            last_click: None,
         }
+    }
+
+    pub fn is_protected(&self, name: &str) -> bool {
+        self.protected_apps.contains(name)
     }
 
     /// Returns apps after applying the current filter and sort.
@@ -133,12 +175,48 @@ impl App {
 
     /// Returns the apps targeted by the current action:
     /// all selected apps if any are selected, otherwise just the cursor app.
+    /// Excludes protected apps.
     fn target_apps(&self) -> Vec<&GuiApp> {
         let visible = self.filtered_sorted_apps();
-        if self.selected_pids.is_empty() {
-            visible.get(self.selected_index).copied().into_iter().collect()
+        let candidates = if self.selected_pids.is_empty() {
+            visible.get(self.selected_index).copied().into_iter().collect::<Vec<_>>()
         } else {
             visible.iter().filter(|a| self.selected_pids.contains(&a.pid)).copied().collect()
+        };
+        candidates.into_iter().filter(|a| !self.is_protected(&a.name)).collect()
+    }
+
+    pub fn handle_mouse_event(&mut self, mouse: MouseEvent) -> Option<Message> {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => Some(Message::MoveUp),
+            MouseEventKind::ScrollDown => Some(Message::MoveDown),
+            MouseEventKind::Down(MouseButton::Left) => {
+                // List starts at row 9 (8-row header + 1 border)
+                let row = mouse.row;
+                if row < 9 {
+                    return None;
+                }
+                let app_index = (row - 9) as usize;
+                let visible_len = self.filtered_sorted_apps().len();
+                if visible_len == 0 {
+                    return None;
+                }
+                let clamped = app_index.min(visible_len - 1);
+
+                // Double-click detection
+                let now = std::time::Instant::now();
+                if let Some((last_row, last_time)) = self.last_click {
+                    if last_row == row && now.duration_since(last_time) < Duration::from_millis(500) {
+                        self.last_click = None;
+                        self.selected_index = clamped;
+                        return Some(Message::ToggleSelect);
+                    }
+                }
+                self.last_click = Some((row, now));
+                self.selected_index = clamped;
+                None
+            }
+            _ => None,
         }
     }
 
@@ -158,6 +236,10 @@ impl App {
             Message::ToggleSelect => {
                 let visible = self.filtered_sorted_apps();
                 if let Some(app) = visible.get(self.selected_index) {
+                    if self.is_protected(&app.name) {
+                        self.set_status(format!("Cannot quit protected app: {}", app.name), false);
+                        return;
+                    }
                     let pid = app.pid;
                     if !self.selected_pids.remove(&pid) {
                         self.selected_pids.insert(pid);
@@ -166,29 +248,81 @@ impl App {
             }
             Message::SelectAll => {
                 let visible = self.filtered_sorted_apps();
-                self.selected_pids = visible.iter().map(|a| a.pid).collect();
+                self.selected_pids = visible.iter()
+                    .filter(|a| !self.is_protected(&a.name))
+                    .map(|a| a.pid)
+                    .collect();
             }
             Message::DeselectAll => {
                 self.selected_pids.clear();
             }
             Message::RequestGracefulQuit => {
                 let targets = self.target_apps();
-                if !targets.is_empty() {
-                    let names: Vec<String> = targets.iter().map(|a| a.name.clone()).collect();
-                    self.confirm_dialog = Some(ConfirmDialog {
-                        app_names: names,
-                        action: QuitAction::Graceful,
-                    });
+                if targets.is_empty() {
+                    // Check if the reason is protection
+                    let visible = self.filtered_sorted_apps();
+                    if let Some(app) = visible.get(self.selected_index) {
+                        if self.is_protected(&app.name) {
+                            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
+                        }
+                    }
+                    return;
                 }
+                let names: Vec<String> = targets.iter().map(|a| a.name.clone()).collect();
+                self.confirm_dialog = Some(ConfirmDialog {
+                    app_names: names,
+                    action: QuitAction::Graceful,
+                });
             }
             Message::RequestForceQuit => {
                 let targets = self.target_apps();
-                if !targets.is_empty() {
-                    let names: Vec<String> = targets.iter().map(|a| a.name.clone()).collect();
-                    self.confirm_dialog = Some(ConfirmDialog {
-                        app_names: names,
-                        action: QuitAction::Force,
+                if targets.is_empty() {
+                    let visible = self.filtered_sorted_apps();
+                    if let Some(app) = visible.get(self.selected_index) {
+                        if self.is_protected(&app.name) {
+                            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
+                        }
+                    }
+                    return;
+                }
+                let names: Vec<String> = targets.iter().map(|a| a.name.clone()).collect();
+                self.confirm_dialog = Some(ConfirmDialog {
+                    app_names: names,
+                    action: QuitAction::Force,
+                });
+            }
+            Message::RequestRestart => {
+                let targets = self.target_apps();
+                if targets.is_empty() {
+                    let visible = self.filtered_sorted_apps();
+                    if let Some(app) = visible.get(self.selected_index) {
+                        if self.is_protected(&app.name) {
+                            self.set_status(format!("Cannot quit protected app: {}", app.name), false);
+                        }
+                    }
+                    return;
+                }
+                let app = targets[0].clone();
+                let bundle_id = app.bundle_id.clone();
+                let name = app.name.clone();
+
+                // Gracefully quit first
+                if process::graceful_quit(&app).is_ok() {
+                    self.set_status(format!("Restarting {}...", name), true);
+                    std::thread::spawn(move || {
+                        std::thread::sleep(Duration::from_millis(800));
+                        process::relaunch(&GuiApp {
+                            name,
+                            pid: 0,
+                            bundle_id,
+                            memory_kb: 0,
+                            cpu_percent: 0.0,
+                            is_frozen: false,
+                        });
                     });
+                    self.refresh_list();
+                } else {
+                    self.set_status(format!("Failed to restart {}", name), false);
                 }
             }
             Message::ConfirmYes => {
@@ -324,7 +458,8 @@ impl App {
             KeyCode::Char('d') => Some(Message::DeselectAll),
             KeyCode::Enter | KeyCode::Char('r') => Some(Message::RequestGracefulQuit),
             KeyCode::Char('f') => Some(Message::RequestForceQuit),
-            KeyCode::Char('R') => Some(Message::RefreshList),
+            KeyCode::Char('R') => Some(Message::RequestRestart),
+            KeyCode::Char('e') => Some(Message::RefreshList),
             KeyCode::Char('q') => Some(Message::Quit),
             KeyCode::Char('/') => Some(Message::EnterFilter),
             KeyCode::Char('s') => Some(Message::CycleSort),

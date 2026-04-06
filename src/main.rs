@@ -5,7 +5,7 @@ mod ui;
 use app::{App, Message};
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event, KeyEventKind},
+    event::{self, Event, KeyEventKind, EnableMouseCapture, DisableMouseCapture},
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
@@ -18,14 +18,14 @@ fn main() -> Result<()> {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         disable_raw_mode().ok();
-        execute!(io::stderr(), LeaveAlternateScreen).ok();
+        execute!(io::stderr(), LeaveAlternateScreen, DisableMouseCapture).ok();
         original_hook(panic_info);
     }));
 
     // Terminal setup
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -41,12 +41,20 @@ fn main() -> Result<()> {
         app.clear_stale_status();
 
         let timeout = tick_rate.saturating_sub(last_tick.elapsed());
-        if event::poll(timeout)?
-            && let Event::Key(key) = event::read()?
-            && key.kind == KeyEventKind::Press
-            && let Some(msg) = app.handle_key_event(key)
-        {
-            app.update(msg);
+        if event::poll(timeout)? {
+            match event::read()? {
+                Event::Key(key) if key.kind == KeyEventKind::Press => {
+                    if let Some(msg) = app.handle_key_event(key) {
+                        app.update(msg);
+                    }
+                }
+                Event::Mouse(mouse) => {
+                    if let Some(msg) = app.handle_mouse_event(mouse) {
+                        app.update(msg);
+                    }
+                }
+                _ => {}
+            }
         }
 
         if last_tick.elapsed() >= tick_rate {
@@ -57,7 +65,7 @@ fn main() -> Result<()> {
 
     // Terminal teardown
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     terminal.show_cursor()?;
 
     Ok(())

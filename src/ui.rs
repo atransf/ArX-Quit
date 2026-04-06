@@ -109,30 +109,56 @@ fn app_group_name(bundle_id: &str) -> &'static str {
 }
 
 fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
+    let is_protected = app.is_protected(&a.name);
     let is_selected = app.selected_pids.contains(&a.pid);
-    let marker = if is_selected { "\u{25cf} " } else { "  " };
-    let name_color = if is_selected { Color::Cyan } else { Color::White };
+
+    let (marker, marker_color) = if is_protected {
+        ("\u{1f512} ", Color::DarkGray)
+    } else if is_selected {
+        ("\u{25cf} ", Color::Cyan)
+    } else {
+        ("  ", Color::White)
+    };
+
+    let name_color = if is_protected {
+        Color::DarkGray
+    } else if is_selected {
+        Color::Cyan
+    } else {
+        Color::White
+    };
+
+    let frozen_prefix = if a.is_frozen {
+        vec![Span::styled("\u{26a0} ", Style::default().fg(Color::Red))]
+    } else {
+        vec![]
+    };
+
     let mem_str = format_memory(a.memory_kb);
     let cpu_str = format!("{:.1}%", a.cpu_percent);
-    Line::from(vec![
-        Span::styled(marker.to_string(), Style::default().fg(Color::Cyan)),
-        Span::styled(
-            format!("{:<30}", a.name),
-            Style::default().fg(name_color),
-        ),
-        Span::styled(
-            format!("  {:<36}", a.bundle_id),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(
-            format!("  PID: {:<8}", a.pid),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(
-            format!("  {}  {}", mem_str, cpu_str),
-            Style::default().fg(Color::DarkGray),
-        ),
-    ])
+
+    let mut spans = vec![
+        Span::styled(marker.to_string(), Style::default().fg(marker_color)),
+    ];
+    spans.extend(frozen_prefix);
+    spans.push(Span::styled(
+        format!("{:<30}", a.name),
+        Style::default().fg(name_color),
+    ));
+    spans.push(Span::styled(
+        format!("  {:<36}", a.bundle_id),
+        Style::default().fg(Color::DarkGray),
+    ));
+    spans.push(Span::styled(
+        format!("  PID: {:<8}", a.pid),
+        Style::default().fg(Color::DarkGray),
+    ));
+    spans.push(Span::styled(
+        format!("  {}  {}", mem_str, cpu_str),
+        Style::default().fg(Color::DarkGray),
+    ));
+
+    Line::from(spans)
 }
 
 fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
@@ -271,7 +297,11 @@ fn draw_preview_pane(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate
             ]),
             Line::from(vec![
                 Span::styled("Status:    ", Style::default().fg(Color::Yellow)),
-                Span::styled("Running", Style::default().fg(Color::Green)),
+                if a.is_frozen {
+                    Span::styled("Not Responding", Style::default().fg(Color::Red))
+                } else {
+                    Span::styled("Running", Style::default().fg(Color::Green))
+                },
             ]),
         ]
     } else {
@@ -354,6 +384,10 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(": Quit  "),
         Span::styled("f", Style::default().fg(Color::Yellow)),
         Span::raw(": Force  "),
+        Span::styled("R", Style::default().fg(Color::Yellow)),
+        Span::raw(": Restart  "),
+        Span::styled("e", Style::default().fg(Color::Yellow)),
+        Span::raw(": Refresh  "),
         Span::styled("/", Style::default().fg(Color::Yellow)),
         Span::raw(": Filter  "),
         Span::styled("s", Style::default().fg(Color::Yellow)),
