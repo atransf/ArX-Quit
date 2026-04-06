@@ -155,7 +155,7 @@ fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
     let is_selected = app.selected_pids.contains(&a.pid);
 
     let (marker, marker_color) = if is_protected {
-        ("\u{1f512} ", Color::DarkGray)
+        ("\u{1f512}", Color::DarkGray)
     } else if is_selected {
         ("\u{25cf} ", Color::Cyan)
     } else {
