@@ -1,7 +1,7 @@
 use crate::app::{App, QuitAction};
 use ratatui::{
     Frame,
-    layout::{Constraint, Layout, Rect},
+    layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
@@ -81,10 +81,11 @@ fn draw_header(frame: &mut Frame, area: Rect) {
         Line::styled(r"   / _ \ | '__| \  / ___ | | | || || | || __|", logo_style),
         Line::styled(r"  / ___ \| |    /  \|___|| |_| || || | || |_ ", logo_style),
         Line::styled(r" /_/   \_\_|   /_/\_\     \__\_\ \__,_|_| \__|", logo_style),
-        Line::styled("                                macOS App Manager", sub_style),
+        Line::styled("App Manager", sub_style),
     ];
 
     let header = Paragraph::new(lines)
+        .alignment(Alignment::Center)
         .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
     frame.render_widget(header, area);
 }
