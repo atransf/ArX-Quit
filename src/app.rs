@@ -121,6 +121,7 @@ pub enum Message {
     ToggleGrouping,
     ToggleHistory,
     TogglePreview,
+    RequestQuitAll,
 }
 
 impl App {
@@ -386,6 +387,19 @@ impl App {
             Message::ToggleHistory => {
                 self.show_history = !self.show_history;
             }
+            Message::RequestQuitAll => {
+                let targets: Vec<String> = self.apps
+                    .iter()
+                    .filter(|a| !self.is_protected(&a.name))
+                    .map(|a| a.name.clone())
+                    .collect();
+                if !targets.is_empty() {
+                    self.confirm_dialog = Some(ConfirmDialog {
+                        app_names: targets,
+                        action: QuitAction::Graceful,
+                    });
+                }
+            }
             Message::TogglePreview => {
                 self.show_preview = !self.show_preview;
             }
@@ -433,6 +447,7 @@ impl App {
             KeyCode::Char('g') => Some(Message::ToggleGrouping),
             KeyCode::Char('l') => Some(Message::ToggleHistory),
             KeyCode::Tab | KeyCode::Char('p') => Some(Message::TogglePreview),
+            KeyCode::Char('Q') => Some(Message::RequestQuitAll),
             KeyCode::Esc => Some(Message::Quit),
             _ => None,
         }

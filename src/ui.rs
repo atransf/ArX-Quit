@@ -19,6 +19,7 @@ const HINTS: &[(&str, &str)] = &[
     ("g", "Group"),
     ("l", "History"),
     ("Tab/p", "Preview"),
+    ("Q", "Quit All"),
     ("q", "Exit"),
 ];
 
