@@ -75,14 +75,19 @@ fn draw_header(frame: &mut Frame, area: Rect) {
     let logo_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
     let sub_style = Style::default().fg(Color::DarkGray);
 
-    let lines = vec![
-        Line::styled(r"     _          __  __      ___        _  _   ", logo_style),
-        Line::styled(r"    / \   _ __ \ \/ /     / _ \  _  _(_)| |_ ", logo_style),
-        Line::styled(r"   / _ \ | '__| \  / ___ | | | || || | || __|", logo_style),
-        Line::styled(r"  / ___ \| |    /  \|___|| |_| || || | || |_ ", logo_style),
-        Line::styled(r" /_/   \_\_|   /_/\_\     \__\_\ \__,_|_| \__|", logo_style),
-        Line::styled("App Manager", sub_style),
+    let raw = [
+        r"     _          __  __      ___        _  _   ",
+        r"    / \   _ __ \ \/ /     / _ \  _  _(_)| |_ ",
+        r"   / _ \ | '__| \  / ___ | | | || || | || __|",
+        r"  / ___ \| |    /  \|___|| |_| || || | || |_ ",
+        r" /_/   \_\_|   /_/\_\     \__\_\ \__,_|_| \__|",
     ];
+    let max_w = raw.iter().map(|l| l.len()).max().unwrap_or(0);
+    let mut lines: Vec<Line> = raw
+        .iter()
+        .map(|l| Line::styled(format!("{:<width$}", l, width = max_w), logo_style))
+        .collect();
+    lines.push(Line::styled(format!("{:<width$}", "App Manager", width = max_w), sub_style));
 
     let header = Paragraph::new(lines)
         .alignment(Alignment::Center)
