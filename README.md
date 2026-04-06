@@ -140,7 +140,7 @@ src/
 
 ## About
 
-I'm not a software engineer. This was built because I needed it, not to show off code. No vibe coding, no AI-generated slop — just a tool that does what it says.
+I'm not a software engineer — this was built through vibe coding with AI. Built it because I needed it, not to show off code.
 
 ## License
 
