@@ -1,6 +1,7 @@
 use crate::process::{self, GuiApp};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::HashSet;
+use std::time::SystemTime;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum SortMode {
@@ -41,6 +42,10 @@ pub struct App {
     pub filter_query: String,
     pub filter_active: bool,
     pub sort_mode: SortMode,
+    pub group_mode: bool,
+    pub show_history: bool,
+    pub show_preview: bool,
+    pub quit_history: Vec<HistoryEntry>,
 }
 
 pub struct ConfirmDialog {
@@ -52,6 +57,13 @@ pub struct ConfirmDialog {
 pub enum QuitAction {
     Graceful,
     Force,
+}
+
+pub struct HistoryEntry {
+    pub timestamp: SystemTime,
+    pub app_name: String,
+    pub action: QuitAction,
+    pub success: bool,
 }
 
 pub enum Message {
@@ -71,6 +83,9 @@ pub enum Message {
     FilterInput(char),
     FilterBackspace,
     CycleSort,
+    ToggleGrouping,
+    ToggleHistory,
+    TogglePreview,
 }
 
 impl App {
@@ -87,6 +102,10 @@ impl App {
             filter_query: String::new(),
             filter_active: false,
             sort_mode: SortMode::NameAsc,
+            group_mode: false,
+            show_history: false,
+            show_preview: false,
+            quit_history: Vec::new(),
         }
     }
 
@@ -188,9 +207,19 @@ impl App {
                             QuitAction::Graceful => process::graceful_quit(app),
                             QuitAction::Force => process::force_quit(app),
                         };
+                        let success = result.is_ok();
                         match result {
                             Ok(()) => succeeded += 1,
                             Err(_) => failed += 1,
+                        }
+                        self.quit_history.push(HistoryEntry {
+                            timestamp: SystemTime::now(),
+                            app_name: app.name.clone(),
+                            action: dialog.action,
+                            success,
+                        });
+                        if self.quit_history.len() > 100 {
+                            self.quit_history.remove(0);
                         }
                     }
 
@@ -246,6 +275,16 @@ impl App {
                 self.sort_mode = self.sort_mode.next();
                 self.selected_index = 0;
             }
+            Message::ToggleGrouping => {
+                self.group_mode = !self.group_mode;
+                self.selected_index = 0;
+            }
+            Message::ToggleHistory => {
+                self.show_history = !self.show_history;
+            }
+            Message::TogglePreview => {
+                self.show_preview = !self.show_preview;
+            }
         }
     }
 
@@ -258,23 +297,25 @@ impl App {
             };
         }
 
+        if self.show_history {
+            return match key.code {
+                KeyCode::Char('l') | KeyCode::Esc => Some(Message::ToggleHistory),
+                _ => None,
+            };
+        }
+
         if self.filter_active {
             return match key.code {
                 KeyCode::Esc | KeyCode::Char('/') => Some(Message::ExitFilter),
                 KeyCode::Backspace => Some(Message::FilterBackspace),
-                KeyCode::Up | KeyCode::Char('\n') => None,  // ignore
+                KeyCode::Up | KeyCode::Char('\n') => None,
                 KeyCode::Down => None,
-                KeyCode::Enter => {
-                    // Exit filter mode but keep the query active? No — just ignore Enter in filter.
-                    None
-                }
+                KeyCode::Enter => None,
                 KeyCode::Char(c) => Some(Message::FilterInput(c)),
                 _ => None,
             };
         }
 
-        // Normal mode — handle navigation keys that also work during filter
-        // But we're not in filter mode here, so handle everything normally
         match key.code {
             KeyCode::Up | KeyCode::Char('k') => Some(Message::MoveUp),
             KeyCode::Down | KeyCode::Char('j') => Some(Message::MoveDown),
@@ -287,6 +328,9 @@ impl App {
             KeyCode::Char('q') => Some(Message::Quit),
             KeyCode::Char('/') => Some(Message::EnterFilter),
             KeyCode::Char('s') => Some(Message::CycleSort),
+            KeyCode::Char('g') => Some(Message::ToggleGrouping),
+            KeyCode::Char('l') => Some(Message::ToggleHistory),
+            KeyCode::Tab | KeyCode::Char('p') => Some(Message::TogglePreview),
             KeyCode::Esc => Some(Message::Quit),
             _ => None,
         }

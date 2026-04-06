@@ -6,6 +6,7 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
+use std::collections::BTreeMap;
 
 pub fn draw(frame: &mut Frame, app: &App) {
     let chunks = Layout::vertical([
@@ -21,6 +22,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     if let Some(ref dialog) = app.confirm_dialog {
         draw_confirm_dialog(frame, &dialog.app_names, dialog.action);
+    }
+
+    if app.show_history {
+        draw_history_overlay(frame, app);
     }
 }
 
@@ -53,8 +58,8 @@ fn format_memory(kb: u64) -> String {
 fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
     let visible = app.filtered_sorted_apps();
 
-    // If filter is active, split the area to show filter input bar
-    if app.filter_active {
+    // Split for filter bar if active
+    let list_area = if app.filter_active {
         let sub = Layout::vertical([
             Constraint::Length(1),
             Constraint::Min(3),
@@ -67,75 +72,272 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
             Span::styled("_", Style::default().fg(Color::Yellow)),
         ]);
         frame.render_widget(Paragraph::new(filter_line), sub[0]);
-        draw_app_list_inner(frame, sub[1], app, &visible);
+        sub[1]
     } else {
-        draw_app_list_inner(frame, area, app, &visible);
+        area
+    };
+
+    // Split for preview pane if active
+    if app.show_preview {
+        let h_split = Layout::horizontal([
+            Constraint::Percentage(60),
+            Constraint::Percentage(40),
+        ])
+        .split(list_area);
+
+        draw_app_list_inner(frame, h_split[0], app, &visible);
+        draw_preview_pane(frame, h_split[1], app, &visible);
+    } else {
+        draw_app_list_inner(frame, list_area, app, &visible);
     }
 }
 
-fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
-    let items: Vec<ListItem> = visible
-        .iter()
-        .map(|a| {
-            let is_selected = app.selected_pids.contains(&a.pid);
-            let marker = if is_selected { "\u{25cf} " } else { "  " };
-            let name_color = if is_selected { Color::Cyan } else { Color::White };
-            let mem_str = format_memory(a.memory_kb);
-            let cpu_str = format!("{:.1}%", a.cpu_percent);
-            let line = Line::from(vec![
-                Span::styled(marker, Style::default().fg(Color::Cyan)),
-                Span::styled(
-                    format!("{:<30}", a.name),
-                    Style::default().fg(name_color),
-                ),
-                Span::styled(
-                    format!("  {:<36}", a.bundle_id),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    format!("  PID: {:<8}", a.pid),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    format!("  {}  {}", mem_str, cpu_str),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]);
-            ListItem::new(line)
-        })
-        .collect();
+fn app_group_name(bundle_id: &str) -> &'static str {
+    if bundle_id.starts_with("com.apple.") {
+        "Apple"
+    } else if bundle_id.starts_with("com.google.") {
+        "Google"
+    } else if bundle_id.starts_with("com.microsoft.") {
+        "Microsoft"
+    } else if bundle_id.starts_with("com.jetbrains.") {
+        "JetBrains"
+    } else if bundle_id.starts_with("com.github.") || bundle_id.starts_with("io.github.") {
+        "GitHub / Electron"
+    } else {
+        "Other"
+    }
+}
 
+fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
+    let is_selected = app.selected_pids.contains(&a.pid);
+    let marker = if is_selected { "\u{25cf} " } else { "  " };
+    let name_color = if is_selected { Color::Cyan } else { Color::White };
+    let mem_str = format_memory(a.memory_kb);
+    let cpu_str = format!("{:.1}%", a.cpu_percent);
+    Line::from(vec![
+        Span::styled(marker.to_string(), Style::default().fg(Color::Cyan)),
+        Span::styled(
+            format!("{:<30}", a.name),
+            Style::default().fg(name_color),
+        ),
+        Span::styled(
+            format!("  {:<36}", a.bundle_id),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(
+            format!("  PID: {:<8}", a.pid),
+            Style::default().fg(Color::DarkGray),
+        ),
+        Span::styled(
+            format!("  {}  {}", mem_str, cpu_str),
+            Style::default().fg(Color::DarkGray),
+        ),
+    ])
+}
+
+fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
     let sort_label = app.sort_mode.label();
+    let grouped_tag = if app.group_mode { " [Grouped]" } else { "" };
     let title = if app.filter_active && !app.filter_query.is_empty() {
         if app.selected_pids.is_empty() {
-            format!(" Applications ({}) [{}] Filter: {} ", visible.len(), sort_label, app.filter_query)
+            format!(" Applications ({}) [{}]{} Filter: {} ", visible.len(), sort_label, grouped_tag, app.filter_query)
         } else {
-            format!(" Applications ({}) [{}] Filter: {} \u{2014} {} selected ", visible.len(), sort_label, app.filter_query, app.selected_pids.len())
+            format!(" Applications ({}) [{}]{} Filter: {} \u{2014} {} selected ", visible.len(), sort_label, grouped_tag, app.filter_query, app.selected_pids.len())
         }
     } else if app.selected_pids.is_empty() {
-        format!(" Applications ({}) [{}] ", visible.len(), sort_label)
+        format!(" Applications ({}) [{}]{} ", visible.len(), sort_label, grouped_tag)
     } else {
-        format!(" Applications ({}) [{}] \u{2014} {} selected ", visible.len(), sort_label, app.selected_pids.len())
+        format!(" Applications ({}) [{}]{} \u{2014} {} selected ", visible.len(), sort_label, grouped_tag, app.selected_pids.len())
     };
 
-    let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
-                .title(title),
-        )
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .fg(Color::White)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol("\u{25b6} ");
+    if app.group_mode {
+        // Build groups preserving sort order
+        let group_order = ["Apple", "Google", "Microsoft", "JetBrains", "GitHub / Electron", "Other"];
+        let mut groups: BTreeMap<&str, Vec<&crate::process::GuiApp>> = BTreeMap::new();
+        for &a in visible {
+            let group = app_group_name(&a.bundle_id);
+            groups.entry(group).or_default().push(a);
+        }
 
-    let mut state = ListState::default();
-    state.select(Some(app.selected_index));
-    frame.render_stateful_widget(list, area, &mut state);
+        // Build items and a mapping from visual row to app index
+        let mut items: Vec<ListItem> = Vec::new();
+        // visual_to_app: maps visual index -> app index in `visible`, None for headers
+        let mut visual_to_app: Vec<Option<usize>> = Vec::new();
+        // We need to reorder visible by groups but keep within-group order from filtered_sorted_apps
+        // Build a mapping: for each group, which indices from visible belong to it
+        let mut group_indices: Vec<(&str, Vec<usize>)> = Vec::new();
+        for &group_name in &group_order {
+            let indices: Vec<usize> = visible.iter().enumerate()
+                .filter(|(_, a)| app_group_name(&a.bundle_id) == group_name)
+                .map(|(i, _)| i)
+                .collect();
+            if !indices.is_empty() {
+                group_indices.push((group_name, indices));
+            }
+        }
+
+        // We need to remap selected_index. The app's selected_index refers to an index
+        // in the flat visible list. In grouped mode, we need to map it to a visual row.
+        // Build the visual rows and find which visual row corresponds to selected_index.
+        let mut highlight_visual: Option<usize> = None;
+
+        for (group_name, indices) in &group_indices {
+            // Header row
+            let header_text = format!("\u{2500}\u{2500} {} ({}) \u{2500}\u{2500}", group_name, indices.len());
+            items.push(ListItem::new(Line::styled(
+                header_text,
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            )));
+            visual_to_app.push(None);
+
+            for &idx in indices {
+                let a = visible[idx];
+                items.push(ListItem::new(make_app_line(a, app)));
+                if idx == app.selected_index {
+                    highlight_visual = Some(items.len() - 1);
+                }
+                visual_to_app.push(Some(idx));
+            }
+        }
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .title(title),
+            )
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("\u{25b6} ");
+
+        let mut state = ListState::default();
+        state.select(highlight_visual);
+        frame.render_stateful_widget(list, area, &mut state);
+    } else {
+        let items: Vec<ListItem> = visible
+            .iter()
+            .map(|a| ListItem::new(make_app_line(a, app)))
+            .collect();
+
+        let list = List::new(items)
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray))
+                    .title(title),
+            )
+            .highlight_style(
+                Style::default()
+                    .bg(Color::DarkGray)
+                    .fg(Color::White)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("\u{25b6} ");
+
+        let mut state = ListState::default();
+        state.select(Some(app.selected_index));
+        frame.render_stateful_widget(list, area, &mut state);
+    }
+}
+
+fn draw_preview_pane(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
+    let content = if let Some(a) = visible.get(app.selected_index) {
+        vec![
+            Line::from(Span::styled(
+                &a.name,
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            )),
+            Line::raw(""),
+            Line::from(vec![
+                Span::styled("PID:       ", Style::default().fg(Color::Yellow)),
+                Span::raw(a.pid.to_string()),
+            ]),
+            Line::from(vec![
+                Span::styled("Bundle ID: ", Style::default().fg(Color::Yellow)),
+                Span::raw(&a.bundle_id),
+            ]),
+            Line::from(vec![
+                Span::styled("Memory:    ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{:.1} MB", a.memory_kb as f64 / 1024.0)),
+            ]),
+            Line::from(vec![
+                Span::styled("CPU:       ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{:.1}%", a.cpu_percent)),
+            ]),
+            Line::from(vec![
+                Span::styled("Status:    ", Style::default().fg(Color::Yellow)),
+                Span::styled("Running", Style::default().fg(Color::Green)),
+            ]),
+        ]
+    } else {
+        vec![Line::styled(
+            "No app selected",
+            Style::default().fg(Color::DarkGray),
+        )]
+    };
+
+    let preview = Paragraph::new(content).block(
+        Block::default()
+            .title(" Preview ")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(preview, area);
+}
+
+fn draw_history_overlay(frame: &mut Frame, app: &App) {
+    let area = centered_rect(70, 60, frame.area());
+    frame.render_widget(Clear, area);
+
+    let title = format!(" Quit History ({}) ", app.quit_history.len());
+
+    let lines: Vec<Line> = app.quit_history.iter().rev().map(|entry| {
+        let time_str = if let Ok(dur) = entry.timestamp.duration_since(std::time::UNIX_EPOCH) {
+            let secs = dur.as_secs();
+            let h = (secs / 3600) % 24;
+            let m = (secs / 60) % 60;
+            let s = secs % 60;
+            format!("{:02}:{:02}:{:02}", h, m, s)
+        } else {
+            "??:??:??".to_string()
+        };
+
+        let (icon, icon_color) = if entry.success {
+            ("\u{2713}", Color::Green)
+        } else {
+            ("\u{2717}", Color::Red)
+        };
+
+        let action_str = match entry.action {
+            QuitAction::Graceful => "quit",
+            QuitAction::Force => "force",
+        };
+
+        Line::from(vec![
+            Span::styled(format!("  [{}]  ", time_str), Style::default().fg(Color::DarkGray)),
+            Span::styled(icon, Style::default().fg(icon_color)),
+            Span::raw(format!("  {:<6} {}", action_str, entry.app_name)),
+        ])
+    }).collect();
+
+    let content = if lines.is_empty() {
+        vec![Line::styled("  No history yet", Style::default().fg(Color::DarkGray))]
+    } else {
+        lines
+    };
+
+    let overlay = Paragraph::new(content).block(
+        Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    frame.render_widget(overlay, area);
 }
 
 fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
@@ -156,6 +358,12 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         Span::raw(": Filter  "),
         Span::styled("s", Style::default().fg(Color::Yellow)),
         Span::raw(": Sort  "),
+        Span::styled("g", Style::default().fg(Color::Yellow)),
+        Span::raw(": Group  "),
+        Span::styled("l", Style::default().fg(Color::Yellow)),
+        Span::raw(": History  "),
+        Span::styled("Tab/p", Style::default().fg(Color::Yellow)),
+        Span::raw(": Preview  "),
         Span::styled("q", Style::default().fg(Color::Yellow)),
         Span::raw(": Exit"),
     ])];
