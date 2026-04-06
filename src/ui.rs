@@ -76,7 +76,7 @@ fn draw_header(frame: &mut Frame, area: Rect) {
     let sub_style = Style::default().fg(Color::DarkGray);
 
     let raw = [
-        r"     _          __  __      ___        _  _   ",
+        r"     _         __  __      ___        _  _   ",
         r"    / \   _ __ \ \/ /     / _ \  _  _(_)| |_ ",
         r"   / _ \ | '__| \  / ___ | | | || || | || __|",
         r"  / ___ \| |    /  \|___|| |_| || || | || |_ ",
