@@ -290,7 +290,7 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&cra
     ]).areas(inner);
 
     let header_line = Line::from(vec![
-        Span::raw("  "),
+        Span::raw("    "),
         Span::styled(format!("{:<24}", "Name"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {:<30}", "Bundle ID"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::styled(format!("  {:>6}", "PID"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
