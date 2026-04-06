@@ -37,7 +37,7 @@ struct ProtectedConfig {
     protected: Vec<String>,
 }
 
-fn load_protected_apps() -> HashSet<String> {
+pub fn load_protected_apps() -> HashSet<String> {
     let mut set: HashSet<String> = [
         "Finder",
         "loginwindow",

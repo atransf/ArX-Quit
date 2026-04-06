@@ -1,9 +1,11 @@
 mod app;
+mod cli;
 mod process;
 mod ui;
 
 use anyhow::Result;
 use app::App;
+use clap::Parser;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyEventKind},
     execute,
@@ -20,6 +22,16 @@ enum BgResult {
 }
 
 fn main() -> Result<()> {
+    let cli = cli::Cli::parse();
+
+    if let Some(cmd) = cli.command {
+        return cli::run(cmd);
+    }
+
+    run_tui()
+}
+
+fn run_tui() -> Result<()> {
     let original_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |panic_info| {
         disable_raw_mode().ok();
@@ -48,7 +60,6 @@ fn main() -> Result<()> {
 
         app.clear_stale_status();
 
-        // Collect any background results without blocking
         while let Ok(result) = rx.try_recv() {
             match result {
                 BgResult::AppList(apps) => {
@@ -60,7 +71,6 @@ fn main() -> Result<()> {
             }
         }
 
-        // Spawn background refresh for app list
         if last_list.elapsed() >= list_tick {
             let tx = tx.clone();
             std::thread::spawn(move || {
@@ -71,7 +81,6 @@ fn main() -> Result<()> {
             last_list = Instant::now();
         }
 
-        // Spawn background refresh for CPU/RSS
         if last_cpu.elapsed() >= cpu_tick {
             if let Some(prev_snap) = app.take_cpu_snapshot() {
                 let mut apps_clone = app.apps.clone();
