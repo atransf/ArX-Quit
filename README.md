@@ -8,6 +8,8 @@
 
 [![CI](https://github.com/atransf/ArX-Quit/actions/workflows/ci.yml/badge.svg)](https://github.com/atransf/ArX-Quit/actions/workflows/ci.yml)
 
+![ArX-Quit screenshot](assets/screenshot.png)
+
 A terminal UI application for macOS that lists all running GUI applications and lets you quit them — gracefully or by force.
 
 Built with Rust and [Ratatui](https://ratatui.rs/).
