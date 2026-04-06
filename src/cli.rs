@@ -69,10 +69,10 @@ fn run_ls() -> Result<()> {
     let protected = app::load_protected_apps();
 
     println!(
-        "{:<30} {:>7}  {:<30} {:>10}  {}",
-        "NAME", "PID", "BUNDLE ID", "MEMORY", "STATUS"
+        "{:<30} {:>7}  {:<30} {:>10}  STATUS",
+        "NAME", "PID", "BUNDLE ID", "MEMORY"
     );
-    println!("{}", "-".repeat(95));
+    println!("{:-<95}", "");
 
     for app in &apps {
         let name = if protected.contains(&app.name) {
