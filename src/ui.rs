@@ -72,7 +72,9 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
 }
 
 fn draw_header(frame: &mut Frame, area: Rect) {
-    let logo_style = Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD);
+    let logo_style = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::BOLD);
     let sub_style = Style::default().fg(Color::DarkGray);
 
     let raw = [
@@ -87,11 +89,16 @@ fn draw_header(frame: &mut Frame, area: Rect) {
         .iter()
         .map(|l| Line::styled(format!("{:<width$}", l, width = max_w), logo_style))
         .collect();
-    lines.push(Line::styled(format!("{:<width$}", "App Manager", width = max_w), sub_style));
+    lines.push(Line::styled(
+        format!("{:<width$}", "App Manager", width = max_w),
+        sub_style,
+    ));
 
-    let header = Paragraph::new(lines)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan)));
+    let header = Paragraph::new(lines).alignment(Alignment::Center).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
     frame.render_widget(header, area);
 }
 
@@ -104,16 +111,13 @@ fn format_memory(kb: u64) -> String {
 }
 
 fn draw_app_list(frame: &mut Frame, area: Rect, app: &mut App) {
-    let visible: Vec<crate::process::GuiApp> = app.filtered_sorted_apps().into_iter().cloned().collect();
+    let visible: Vec<crate::process::GuiApp> =
+        app.filtered_sorted_apps().into_iter().cloned().collect();
     let visible_refs: Vec<&crate::process::GuiApp> = visible.iter().collect();
 
     // Split for filter bar if active
     let list_area = if app.filter_active {
-        let sub = Layout::vertical([
-            Constraint::Length(1),
-            Constraint::Min(3),
-        ])
-        .split(area);
+        let sub = Layout::vertical([Constraint::Length(1), Constraint::Min(3)]).split(area);
 
         let filter_line = Line::from(vec![
             Span::styled(" Filter: ", Style::default().fg(Color::Yellow)),
@@ -128,11 +132,8 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &mut App) {
 
     // Split for preview pane if active
     if app.show_preview {
-        let h_split = Layout::horizontal([
-            Constraint::Percentage(60),
-            Constraint::Percentage(40),
-        ])
-        .split(list_area);
+        let h_split = Layout::horizontal([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(list_area);
 
         draw_app_list_inner(frame, h_split[0], app, &visible_refs);
         draw_preview_pane(frame, h_split[1], app, &visible_refs);
@@ -189,9 +190,10 @@ fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
     let name_col = truncate(&a.name, 24);
     let bundle_col = truncate(&a.bundle_id, 30);
 
-    let mut spans = vec![
-        Span::styled(marker.to_string(), Style::default().fg(marker_color)),
-    ];
+    let mut spans = vec![Span::styled(
+        marker.to_string(),
+        Style::default().fg(marker_color),
+    )];
     spans.extend(frozen_prefix);
     spans.push(Span::styled(
         format!("{:<24}", name_col),
@@ -218,10 +220,19 @@ fn make_app_line(a: &crate::process::GuiApp, app: &App) -> Line<'static> {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max { s.to_string() } else { format!("{}\u{2026}", &s[..max - 1]) }
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("{}\u{2026}", &s[..max - 1])
+    }
 }
 
-fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &mut App, visible: &[&crate::process::GuiApp]) {
+fn draw_app_list_inner(
+    frame: &mut Frame,
+    area: Rect,
+    app: &mut App,
+    visible: &[&crate::process::GuiApp],
+) {
     let sort_label = app.sort_mode.label();
     let grouped_tag = if app.group_mode { " [Grouped]" } else { "" };
     let filter_tag = if app.filter_active && !app.filter_query.is_empty() {
@@ -234,30 +245,51 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &mut App, visible: &[
     } else {
         format!(" \u{2014} {} selected", app.selected_pids.len())
     };
-    let title = format!(" Applications ({}) [{}]{}{}{} ", visible.len(), sort_label, grouped_tag, filter_tag, select_tag);
+    let title = format!(
+        " Applications ({}) [{}]{}{}{} ",
+        visible.len(),
+        sort_label,
+        grouped_tag,
+        filter_tag,
+        select_tag
+    );
 
     let (items, highlight) = if app.group_mode {
-        let group_order = ["Apple", "Google", "Microsoft", "JetBrains", "GitHub / Electron", "Other"];
+        let group_order = [
+            "Apple",
+            "Google",
+            "Microsoft",
+            "JetBrains",
+            "GitHub / Electron",
+            "Other",
+        ];
         let mut items: Vec<ListItem> = Vec::new();
         let mut highlight_visual: Option<usize> = None;
 
         for &group_name in &group_order {
-            let indices: Vec<usize> = visible.iter().enumerate()
+            let indices: Vec<usize> = visible
+                .iter()
+                .enumerate()
                 .filter(|(_, a)| app_group_name(&a.bundle_id) == group_name)
                 .map(|(i, _)| i)
                 .collect();
-            if indices.is_empty() { continue; }
+            if indices.is_empty() {
+                continue;
+            }
 
             items.push(ListItem::new(Line::styled(
-                format!("\u{2500}\u{2500} {} ({}) \u{2500}\u{2500}", group_name, indices.len()),
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                format!(
+                    "\u{2500}\u{2500} {} ({}) \u{2500}\u{2500}",
+                    group_name,
+                    indices.len()
+                ),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             )));
 
             for idx in indices {
-                let item = ListItem::new(vec![
-                    make_app_line(visible[idx], app),
-                    Line::raw(""),
-                ]);
+                let item = ListItem::new(vec![make_app_line(visible[idx], app), Line::raw("")]);
                 items.push(item);
                 if idx == app.selected_index {
                     highlight_visual = Some(items.len() - 1);
@@ -268,10 +300,7 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &mut App, visible: &[
     } else {
         let items: Vec<ListItem> = visible
             .iter()
-            .map(|a| ListItem::new(vec![
-                make_app_line(a, app),
-                Line::raw(""),
-            ]))
+            .map(|a| ListItem::new(vec![make_app_line(a, app), Line::raw("")]))
             .collect();
         (items, Some(app.selected_index))
     };
@@ -288,15 +317,41 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &mut App, visible: &[
         Constraint::Length(1),
         Constraint::Length(1),
         Constraint::Min(0),
-    ]).areas(inner);
+    ])
+    .areas(inner);
 
     let header_line = Line::from(vec![
         Span::raw("    "),
-        Span::styled(format!("{:<24}", "Name"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {:<30}", "Bundle ID"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {:>6}", "PID"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {:>6}", "Mem"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("  {:>5}", "CPU"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("{:<24}", "Name"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {:<30}", "Bundle ID"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {:>6}", "PID"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {:>6}", "Mem"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!("  {:>5}", "CPU"),
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        ),
     ]);
     frame.render_widget(Paragraph::new(header_line), header_area);
 
@@ -319,12 +374,19 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &mut App, visible: &[
     frame.render_stateful_widget(list, list_area, &mut app.list_state);
 }
 
-fn draw_preview_pane(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
+fn draw_preview_pane(
+    frame: &mut Frame,
+    area: Rect,
+    app: &App,
+    visible: &[&crate::process::GuiApp],
+) {
     let content = if let Some(a) = visible.get(app.selected_index) {
         vec![
             Line::from(Span::styled(
                 &a.name,
-                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
             )),
             Line::raw(""),
             Line::from(vec![
@@ -374,37 +436,48 @@ fn draw_history_overlay(frame: &mut Frame, app: &App) {
 
     let title = format!(" Quit History ({}) ", app.quit_history.len());
 
-    let lines: Vec<Line> = app.quit_history.iter().rev().map(|entry| {
-        let time_str = if let Ok(dur) = entry.timestamp.duration_since(std::time::UNIX_EPOCH) {
-            let secs = dur.as_secs();
-            let h = (secs / 3600) % 24;
-            let m = (secs / 60) % 60;
-            let s = secs % 60;
-            format!("{:02}:{:02}:{:02}", h, m, s)
-        } else {
-            "??:??:??".to_string()
-        };
+    let lines: Vec<Line> = app
+        .quit_history
+        .iter()
+        .rev()
+        .map(|entry| {
+            let time_str = if let Ok(dur) = entry.timestamp.duration_since(std::time::UNIX_EPOCH) {
+                let secs = dur.as_secs();
+                let h = (secs / 3600) % 24;
+                let m = (secs / 60) % 60;
+                let s = secs % 60;
+                format!("{:02}:{:02}:{:02}", h, m, s)
+            } else {
+                "??:??:??".to_string()
+            };
 
-        let (icon, icon_color) = if entry.success {
-            ("\u{2713}", Color::Green)
-        } else {
-            ("\u{2717}", Color::Red)
-        };
+            let (icon, icon_color) = if entry.success {
+                ("\u{2713}", Color::Green)
+            } else {
+                ("\u{2717}", Color::Red)
+            };
 
-        let action_str = match entry.action {
-            QuitAction::Graceful => "quit",
-            QuitAction::Force => "force",
-        };
+            let action_str = match entry.action {
+                QuitAction::Graceful => "quit",
+                QuitAction::Force => "force",
+            };
 
-        Line::from(vec![
-            Span::styled(format!("  [{}]  ", time_str), Style::default().fg(Color::DarkGray)),
-            Span::styled(icon, Style::default().fg(icon_color)),
-            Span::raw(format!("  {:<6} {}", action_str, entry.app_name)),
-        ])
-    }).collect();
+            Line::from(vec![
+                Span::styled(
+                    format!("  [{}]  ", time_str),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                Span::styled(icon, Style::default().fg(icon_color)),
+                Span::raw(format!("  {:<6} {}", action_str, entry.app_name)),
+            ])
+        })
+        .collect();
 
     let content = if lines.is_empty() {
-        vec![Line::styled("  No history yet", Style::default().fg(Color::DarkGray))]
+        vec![Line::styled(
+            "  No history yet",
+            Style::default().fg(Color::DarkGray),
+        )]
     } else {
         lines
     };
@@ -431,8 +504,11 @@ fn draw_footer(frame: &mut Frame, area: Rect, app: &App) {
         )));
     }
 
-    let footer = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+    let footer = Paragraph::new(lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
     frame.render_widget(footer, area);
 }
 fn draw_confirm_dialog(frame: &mut Frame, app_names: &[String], action: QuitAction) {
@@ -457,13 +533,23 @@ fn draw_confirm_dialog(frame: &mut Frame, app_names: &[String], action: QuitActi
     if app_names.len() == 1 {
         text.push(Line::from(vec![
             Span::raw("  Action: "),
-            Span::styled(action_text, Style::default().fg(action_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                action_text,
+                Style::default()
+                    .fg(action_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(format!(" \"{}\"", app_names[0])),
         ]));
     } else {
         text.push(Line::from(vec![
             Span::raw("  "),
-            Span::styled(action_text, Style::default().fg(action_color).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                action_text,
+                Style::default()
+                    .fg(action_color)
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::raw(format!(" {} apps:", app_names.len())),
         ]));
         for name in app_names.iter().take(8) {
@@ -483,9 +569,17 @@ fn draw_confirm_dialog(frame: &mut Frame, app_names: &[String], action: QuitActi
     text.push(Line::raw(""));
     text.push(Line::from(vec![
         Span::raw("  Press "),
-        Span::styled("y/Enter", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "y/Enter",
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" to confirm, "),
-        Span::styled("n/Esc", Style::default().fg(Color::Red).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "n/Esc",
+            Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+        ),
         Span::raw(" to cancel"),
     ]));
 
