@@ -10,7 +10,7 @@
 
 ![ArX-Quit screenshot](assets/screenshot.png)
 
-A terminal UI application for macOS that lists all running GUI applications and lets you quit them — gracefully or by force.
+A terminal UI and CLI tool for macOS that lists all running GUI applications and lets you quit them — gracefully or by force.
 
 Built with Rust and [Ratatui](https://ratatui.rs/).
 
@@ -63,6 +63,33 @@ cargo run
 ```bash
 arxkill
 ```
+
+## CLI Usage
+
+`arxkill` can be used as a standalone CLI without launching the TUI:
+
+```bash
+# List all running GUI apps
+arxkill ls
+
+# Graceful quit an app by name (case-insensitive match)
+arxkill kill safari
+
+# Force quit an app
+arxkill kill -f safari
+
+# Quit all non-protected apps
+arxkill kill -a
+
+# Force quit all non-protected apps
+arxkill kill -a -f
+
+# Show help
+arxkill --help
+arxkill kill --help
+```
+
+Protected apps are respected in CLI mode — they cannot be killed and are skipped by `--all`.
 
 ## Keybindings
 
@@ -124,7 +151,8 @@ protected = ["Safari", "Terminal"]
 
 ```
 src/
-  main.rs      — Entry point, terminal setup/teardown, event loop
+  main.rs      — Entry point, CLI/TUI routing, terminal setup/teardown, event loop
+  cli.rs       — CLI argument parsing and subcommand execution (ls, kill)
   app.rs       — Application state, message handling, key bindings
   ui.rs        — TUI layout and rendering (header, list, footer, dialogs)
   process.rs   — macOS process listing, CPU sampling, quit, restart
@@ -137,6 +165,7 @@ src/
 - [anyhow](https://crates.io/crates/anyhow) — Error handling
 - [toml](https://crates.io/crates/toml) — Configuration parsing
 - [serde](https://crates.io/crates/serde) — Deserialization
+- [clap](https://crates.io/crates/clap) — CLI argument parsing
 
 ## About
 
