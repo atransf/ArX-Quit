@@ -1,5 +1,6 @@
 use crate::process::{self, CpuSnapshot, GuiApp};
 use crossterm::event::{KeyCode, KeyEvent, MouseEvent, MouseEventKind, MouseButton};
+use ratatui::widgets::ListState;
 use std::collections::HashSet;
 use std::time::{Duration, SystemTime};
 
@@ -81,6 +82,7 @@ pub struct App {
     pub protected_apps: HashSet<String>,
     pub last_click: Option<(u16, std::time::Instant)>,
     cpu_snapshot: Option<CpuSnapshot>,
+    pub list_state: ListState,
 }
 
 pub struct ConfirmDialog {
@@ -150,6 +152,7 @@ impl App {
             protected_apps,
             last_click: None,
             cpu_snapshot: Some(snapshot),
+            list_state: ListState::default().with_selected(Some(0)),
         }
     }
 

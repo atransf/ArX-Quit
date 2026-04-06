@@ -34,7 +34,7 @@ fn main() -> Result<()> {
     let mut last_list = Instant::now();
 
     while app.running {
-        terminal.draw(|frame| ui::draw(frame, &app))?;
+        terminal.draw(|frame| ui::draw(frame, &mut app))?;
 
         app.clear_stale_status();
 

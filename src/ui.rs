@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
+    widgets::{Block, Borders, Clear, List, ListItem, Paragraph},
 };
 const HINTS: &[(&str, &str)] = &[
     ("\u{2191}\u{2193}/jk", "Navigate"),
@@ -45,7 +45,7 @@ fn hint_lines(inner_width: u16) -> Vec<Line<'static>> {
     lines
 }
 
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &mut App) {
     let inner_width = frame.area().width.saturating_sub(2);
     let hint_row_count = hint_lines(inner_width).len() as u16;
     let status_row = app.status_message.is_some() as u16;
@@ -103,8 +103,9 @@ fn format_memory(kb: u64) -> String {
     }
 }
 
-fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
-    let visible = app.filtered_sorted_apps();
+fn draw_app_list(frame: &mut Frame, area: Rect, app: &mut App) {
+    let visible: Vec<crate::process::GuiApp> = app.filtered_sorted_apps().into_iter().cloned().collect();
+    let visible_refs: Vec<&crate::process::GuiApp> = visible.iter().collect();
 
     // Split for filter bar if active
     let list_area = if app.filter_active {
@@ -133,10 +134,10 @@ fn draw_app_list(frame: &mut Frame, area: Rect, app: &App) {
         ])
         .split(list_area);
 
-        draw_app_list_inner(frame, h_split[0], app, &visible);
-        draw_preview_pane(frame, h_split[1], app, &visible);
+        draw_app_list_inner(frame, h_split[0], app, &visible_refs);
+        draw_preview_pane(frame, h_split[1], app, &visible_refs);
     } else {
-        draw_app_list_inner(frame, list_area, app, &visible);
+        draw_app_list_inner(frame, list_area, app, &visible_refs);
     }
 }
 
@@ -220,7 +221,7 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max { s.to_string() } else { format!("{}\u{2026}", &s[..max - 1]) }
 }
 
-fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
+fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &mut App, visible: &[&crate::process::GuiApp]) {
     let sort_label = app.sort_mode.label();
     let grouped_tag = if app.group_mode { " [Grouped]" } else { "" };
     let filter_tag = if app.filter_active && !app.filter_query.is_empty() {
@@ -314,9 +315,8 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&cra
         )
         .highlight_symbol("\u{25b6} ");
 
-    let mut state = ListState::default();
-    state.select(highlight);
-    frame.render_stateful_widget(list, list_area, &mut state);
+    app.list_state.select(highlight);
+    frame.render_stateful_widget(list, list_area, &mut app.list_state);
 }
 
 fn draw_preview_pane(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
