@@ -270,13 +270,37 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&cra
         (items, Some(app.selected_index))
     };
 
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray))
+        .title(title);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    // Split inner: 1-line column header + separator + list
+    let [header_area, sep_area, list_area] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Length(1),
+        Constraint::Min(0),
+    ]).areas(inner);
+
+    let header_line = Line::from(vec![
+        Span::raw("  "),
+        Span::styled(format!("{:<24}", "Name"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {:<30}", "Bundle ID"), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {:>6}", "PID"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {:>6}", "Mem"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("  {:>5}", "CPU"),    Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+    ]);
+    frame.render_widget(Paragraph::new(header_line), header_area);
+
+    let sep = "\u{2500}".repeat(inner.width as usize);
+    frame.render_widget(
+        Paragraph::new(Line::styled(sep, Style::default().fg(Color::DarkGray))),
+        sep_area,
+    );
+
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray))
-                .title(title),
-        )
         .highlight_style(
             Style::default()
                 .bg(Color::DarkGray)
@@ -287,7 +311,7 @@ fn draw_app_list_inner(frame: &mut Frame, area: Rect, app: &App, visible: &[&cra
 
     let mut state = ListState::default();
     state.select(highlight);
-    frame.render_stateful_widget(list, area, &mut state);
+    frame.render_stateful_widget(list, list_area, &mut state);
 }
 
 fn draw_preview_pane(frame: &mut Frame, area: Rect, app: &App, visible: &[&crate::process::GuiApp]) {
